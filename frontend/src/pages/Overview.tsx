@@ -265,6 +265,7 @@ export default function Overview() {
             <div><dt>可安全分配资源</dt><dd>{memoryLabel(modelMemoryBudget.allocatableGiB)}</dd></div>
             <div><dt>系统资源总量</dt><dd>{memoryLabel(modelMemoryBudget.totalGiB)}</dd></div>
             {modelMemoryBudget.observedModelMemoryGiB !== null && <div><dt>已观测模型进程</dt><dd>{memoryLabel(modelMemoryBudget.observedModelMemoryGiB)}{modelMemoryBudget.observedModelRuntimeCount ? ` · ${modelMemoryBudget.observedModelRuntimeCount} 个运行时` : ''}</dd></div>}
+            {modelMemoryBudget.observedOtherGpuComputeGiB !== null && modelMemoryBudget.observedOtherGpuComputeGiB > 0 && <div><dt>其它 GPU 计算进程</dt><dd>{memoryLabel(modelMemoryBudget.observedOtherGpuComputeGiB)}（未归属模型）</dd></div>}
           </dl>
         </section>
       )}

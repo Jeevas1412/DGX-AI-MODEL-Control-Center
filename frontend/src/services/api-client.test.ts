@@ -61,7 +61,7 @@ describe('ApiClient', () => {
 
   it('retains the last valid response and marks it stale when a later request fails', async () => {
     const fetcher = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse({ memoryTotalBytes: 128 * 1024 ** 3, memoryAvailableBytes: 32 * 1024 ** 3, modelMemoryBudget: { source: 'linux-memavailable', totalMiB: 128 * 1024, freeMiB: 32 * 1024, safetyReserveMiB: 128 * 102.4, allocatableMiB: 19660.8, observedModelMemoryMiB: 62510, observedModelRuntimeCount: 2 } }))
+      .mockResolvedValueOnce(jsonResponse({ memoryTotalBytes: 128 * 1024 ** 3, memoryAvailableBytes: 32 * 1024 ** 3, modelMemoryBudget: { source: 'linux-memavailable', totalMiB: 128 * 1024, freeMiB: 32 * 1024, safetyReserveMiB: 128 * 102.4, allocatableMiB: 19660.8, observedModelMemoryMiB: 62510, observedModelRuntimeCount: 2, observedOtherGpuComputeMiB: 603 } }))
       .mockRejectedValueOnce(new Error('network unavailable'))
     const client = createApiClient({ mode: 'live', baseUrl: 'http://api.test', fetcher })
 
@@ -70,7 +70,7 @@ describe('ApiClient', () => {
 
     expect(fresh.stale).toBe(false)
     expect(fresh.data.memoryUsed).toBe(96)
-    expect(fresh.data.modelMemoryBudget).toMatchObject({ source: 'linux-memavailable', freeGiB: 32, allocatableGiB: 19.2, observedModelMemoryGiB: 61, observedModelRuntimeCount: 2 })
+    expect(fresh.data.modelMemoryBudget).toMatchObject({ source: 'linux-memavailable', freeGiB: 32, allocatableGiB: 19.2, observedModelMemoryGiB: 61, observedModelRuntimeCount: 2, observedOtherGpuComputeGiB: 0.6 })
     expect(stale).toMatchObject({ data: fresh.data, stale: true, error: 'network unavailable' })
   })
 

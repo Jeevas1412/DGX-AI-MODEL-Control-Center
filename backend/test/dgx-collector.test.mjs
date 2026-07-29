@@ -6,7 +6,7 @@ import { createDgxLogProvider, createDgxSnapshotProvider, createSnapshotCache, e
 const probe = {
   generatedAt: '2026-07-19T06:00:00.000Z',
   memory: { totalBytes: 128 * 1024 ** 3, availableBytes: 96 * 1024 ** 3 },
-  gpu: { name: 'NVIDIA GB10', driverVersion: '580.159.03', utilizationPercent: 92, temperatureCelsius: 71, powerWatts: 70, unifiedTotalBytes: 128 * 1024 ** 3, unifiedFreeBytes: 24 * 1024 ** 3, computeApps: [{ pid: 1208567, processName: 'VLLM::EngineCore', usedMiB: 34853 }, { pid: 1036214, processName: 'python', usedMiB: 170 }], vllmRuntimes: [{ port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }] },
+  gpu: { name: 'NVIDIA GB10', driverVersion: '580.159.03', utilizationPercent: 92, temperatureCelsius: 71, powerWatts: 70, unifiedTotalBytes: 128 * 1024 ** 3, unifiedFreeBytes: 24 * 1024 ** 3, computeApps: [{ pid: 1208567, processName: 'VLLM::EngineCore', usedMiB: 34853 }, { pid: 1036214, processName: 'python', usedMiB: 218 }, { pid: 1036215, processName: 'sglang::scheduler', usedMiB: 14606 }], modelRuntimes: [{ engine: 'vllm', port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }, { engine: 'sglang', port: 8005, modelId: 'qwen3-vl-8b-fp8', usedMiB: 14824 }], vllmRuntimes: [{ port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }] },
   nvfp4: {
     backendRunning: true,
     idleForSeconds: 3,
@@ -37,15 +37,17 @@ test('maps a fixed DGX probe into the public monitoring contract', () => {
   assert.equal(snapshot.services.find((service) => service.id === 'nvfp4').observedMemoryMiB, 34853);
   assert.equal(snapshot.system.modelMemoryBudget.source, 'linux-memavailable');
   assert.equal(snapshot.system.modelMemoryBudget.allocatableMiB, 85196.8);
-  assert.equal(snapshot.system.modelMemoryBudget.observedModelMemoryMiB, 34853);
-  assert.equal(snapshot.system.modelMemoryBudget.observedModelRuntimeCount, 1);
+  assert.equal(snapshot.services.find((service) => service.id === 'vlm').observedMemoryMiB, 14824);
+  assert.equal(snapshot.system.modelMemoryBudget.observedModelMemoryMiB, 49677);
+  assert.equal(snapshot.system.modelMemoryBudget.observedModelRuntimeCount, 2);
+  assert.equal(snapshot.system.modelMemoryBudget.observedOtherGpuComputeMiB, 0);
 });
 
 test('keeps an observed vLLM runtime separate from configured capacity and uses its actual port for legacy attribution', () => {
   const snapshot = snapshotFromProbe({
     ...probe,
     nvfp4: { ...probe.nvfp4, backendRunning: false },
-    gpu: { ...probe.gpu, vllmRuntimes: [{ port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }, { port: 8096, modelId: 'qwen3.6-35b-a3b-nvfp4', usedMiB: 27657 }] },
+    gpu: { ...probe.gpu, modelRuntimes: [{ engine: 'vllm', port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }, { engine: 'vllm', port: 8096, modelId: 'qwen3.6-35b-a3b-nvfp4', usedMiB: 27657 }], vllmRuntimes: [{ port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }, { port: 8096, modelId: 'qwen3.6-35b-a3b-nvfp4', usedMiB: 27657 }] },
   });
   const nvfp4 = snapshot.services.find((service) => service.id === 'nvfp4');
   assert.equal(nvfp4.status, 'running');
@@ -55,7 +57,7 @@ test('keeps an observed vLLM runtime separate from configured capacity and uses 
 });
 
 test('reports a conservative configured reservation for an unloaded model without treating it as observed use', () => {
-  const snapshot = snapshotFromProbe({ ...probe, vlm: { ...probe.vlm, backendRunning: false } });
+  const snapshot = snapshotFromProbe({ ...probe, vlm: { ...probe.vlm, backendRunning: false }, gpu: { ...probe.gpu, modelRuntimes: probe.gpu.modelRuntimes.filter((item) => item.port !== 8005) } });
   const vlm = snapshot.services.find((service) => service.id === 'vlm');
   assert.equal(vlm.observedMemoryMiB, null);
   assert.equal(vlm.estimatedMemoryMiB, 45875.2);

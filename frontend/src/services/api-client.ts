@@ -252,6 +252,7 @@ function mapSystem(payload: unknown): SystemMetrics {
       allocatableGiB: toGiB(budget.allocatableMiB),
       observedModelMemoryGiB: toGiB(budget.observedModelMemoryMiB),
       observedModelRuntimeCount: nullableNumber(budget.observedModelRuntimeCount),
+      observedOtherGpuComputeGiB: toGiB(budget.observedOtherGpuComputeMiB),
     } : undefined,
   }
 }

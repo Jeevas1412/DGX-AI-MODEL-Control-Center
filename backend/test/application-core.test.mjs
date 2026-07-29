@@ -369,7 +369,7 @@ test('service inventory includes registered generic services without inventing a
   }
 });
 
-test('service inventory shows observed runtime memory only when a registered display name exactly matches a read-only vLLM model id', async () => {
+test('service inventory shows observed runtime memory only when a registered display name exactly matches a read-only model runtime id', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'dgx-managed-service-runtime-'));
   try {
     const profileStore = createConnectionProfileStore({ filePath: join(directory, 'profiles.json') });
@@ -378,7 +378,7 @@ test('service inventory shows observed runtime memory only when a registered dis
       profileStore,
       modelServiceRegistry: registry,
       profileVerifier: async () => ({ connection: 'reachable', capabilities: { monitoring: 'available' }, verificationEvidence }),
-      snapshotProvider: async () => ({ generatedAt: '2026-07-22T00:00:00.000Z', services: [], system: { vllmRuntimes: [{ port: 8096, modelId: 'qwen3.6-35b-a3b-nvfp4', usedMiB: 27657 }] }, metrics: {} }),
+      snapshotProvider: async () => ({ generatedAt: '2026-07-22T00:00:00.000Z', services: [], system: { modelRuntimes: [{ engine: 'vllm', port: 8096, modelId: 'qwen3.6-35b-a3b-nvfp4', usedMiB: 27657 }] }, metrics: {} }),
       modelServiceAdapterDiscovery: async () => [{ id: 'adapter-text', version: '1.0.0', integritySha256: `sha256:${'c'.repeat(64)}`, templateId: 'openai-compatible-text', actions: ['warmup', 'restart', 'stop'], healthCheck: { kind: 'service-health' }, resourceBudget: { estimatedMemoryMiB: 4096 } }],
     });
     const profile = await core.dispatch({ method: 'POST', path: '/api/setup/profiles', body: { displayName: 'Lab DGX', sshAlias: 'lab-dgx' } });

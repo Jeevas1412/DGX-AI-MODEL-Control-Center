@@ -59,9 +59,9 @@ function runtimeKey(value) {
 }
 
 /** Runtime attribution is display-only. It never grants control authority. */
-function observedVllmRuntime(entry, snapshot) {
+function observedModelRuntime(entry, snapshot) {
   const expected = runtimeKey(entry?.displayName);
-  const runtimes = snapshot?.system?.vllmRuntimes;
+  const runtimes = snapshot?.system?.modelRuntimes ?? snapshot?.system?.vllmRuntimes;
   if (!expected || !Array.isArray(runtimes)) return null;
   const match = runtimes.find((item) => runtimeKey(item?.modelId) === expected
     && Number.isFinite(item?.usedMiB) && item.usedMiB >= 0);
@@ -202,7 +202,7 @@ export function createApplicationCore({
         && item.version === entry.adapterVersion
         && item.integritySha256 === entry.adapterIntegritySha256);
       const template = MODEL_SERVICE_TEMPLATES.find((item) => item.id === entry.templateId);
-      const runtime = observedVllmRuntime(entry, snapshot);
+      const runtime = observedModelRuntime(entry, snapshot);
       return Object.freeze({
         id: `managed-${entry.id}`,
         managedServiceId: entry.id,
