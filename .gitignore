@@ -13,8 +13,7 @@ secrets/
 **/dist/
 **/.vite/
 **/coverage/
-desktop/build/
-!desktop/build/
+desktop/build/*
 !desktop/build/installer.nsh
 frontend/*.timestamp-*.mjs
 
