@@ -10,6 +10,21 @@ import './Overview.css'
 
 type ControlPlan = LocalControlPlan | ManagedServicePlan
 type Action = { service: ServiceInfo; name: LocalControlAction; managed?: boolean; planning?: boolean; plan?: ControlPlan; operation?: LocalControlOperation; error?: string; needsConnectionReverification?: boolean } | null
+type BackgroundOperation = LocalControlOperation
+
+const BACKGROUND_OPERATION_STORAGE_KEY = 'dgx-ai-control-center.background-local-operation'
+
+function readBackgroundOperation(): BackgroundOperation | null {
+  try {
+    const parsed: unknown = JSON.parse(window.sessionStorage.getItem(BACKGROUND_OPERATION_STORAGE_KEY) ?? 'null')
+    if (!parsed || typeof parsed !== 'object') return null
+    const value = parsed as Partial<BackgroundOperation>
+    if (typeof value.id !== 'string' || typeof value.serviceId !== 'string' || typeof value.serviceName !== 'string' || typeof value.action !== 'string' || typeof value.status !== 'string' || typeof value.startedAt !== 'string') return null
+    return value as BackgroundOperation
+  } catch {
+    return null
+  }
+}
 
 function memoryLabel(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : `${value.toFixed(1)} GiB`
@@ -50,6 +65,15 @@ function operationProgress(operation: LocalControlOperation, now: number) {
   return { elapsed: clock(elapsedMs), percent: phasePercent, overrun: elapsedMs > limitMs, limit: clock(limitMs) }
 }
 
+function startupCapacityBlocked(service: ServiceInfo, budget: SystemMetrics['modelMemoryBudget'] | undefined) {
+  return service.observedMemoryGiB === null
+    && service.estimatedMemoryGiB !== null
+    && service.estimatedMemoryGiB !== undefined
+    && budget?.allocatableGiB !== null
+    && budget?.allocatableGiB !== undefined
+    && service.estimatedMemoryGiB > budget.allocatableGiB
+}
+
 function makeLinePath(values: number[], width = 520, height = 150) {
   const min = Math.min(...values)
   const max = Math.max(...values)
@@ -85,6 +109,7 @@ export default function Overview() {
   const [localControlEnabled, setLocalControlEnabled] = useState(false)
   const [operationClock, setOperationClock] = useState(() => Date.now())
   const [reverifyingConnection, setReverifyingConnection] = useState(false)
+  const [backgroundOperation, setBackgroundOperation] = useState<BackgroundOperation | null>(readBackgroundOperation)
   const getSystem = useCallback(() => api.getSystemMetricsState(), [])
   const getServices = useCallback(() => api.getServicesState(), [])
   const getNvfp4 = useCallback(() => api.getModelMetricsState('nvfp4'), [])
@@ -103,14 +128,22 @@ export default function Overview() {
   const healthOk = healthStatus === 'healthy' || healthStatus === 'ok'
   const monitoringClass = health.isLoading ? 'checking' : stale ? 'offline' : healthOk ? 'online' : healthStatus === 'degraded' ? 'degraded' : 'offline'
   const monitoringLabel = health.isLoading ? '正在检查' : stale ? '数据可能过期' : healthOk ? '监控正常' : healthStatus === 'degraded' ? '部分服务不可用' : '状态未知'
-  const controlsBusy = Boolean(action?.planning || action?.operation?.status === 'running')
+  const activeOperation = action?.operation?.status === 'running' ? action.operation : backgroundOperation?.status === 'running' ? backgroundOperation : null
+  const controlsBusy = Boolean(action?.planning || activeOperation)
   const actionBlocked = Boolean(action?.error)
 
   useEffect(() => {
-    if (action?.operation?.status !== 'running') return undefined
+    if (!activeOperation) return undefined
     const timer = window.setInterval(() => setOperationClock(Date.now()), 1_000)
     return () => window.clearInterval(timer)
-  }, [action?.operation?.status])
+  }, [activeOperation?.id])
+
+  useEffect(() => {
+    if (!backgroundOperation || backgroundOperation.status !== 'running') return
+    void monitorOperation(backgroundOperation)
+    // The operation id is durable in session storage. Re-entering the overview
+    // resumes observation without keeping a dialog open.
+  }, [backgroundOperation?.id])
 
   useEffect(() => {
     let active = true
@@ -202,10 +235,13 @@ export default function Overview() {
       try {
         const current = await api.getLocalControlOperation(operation.id)
         setAction((existing) => existing?.operation?.id === operation.id ? { ...existing, operation: current } : existing)
+        setBackgroundOperation((existing) => existing?.id === operation.id ? current : existing)
         if (current.status === 'succeeded' || current.status === 'failed') {
           setNotice(`${current.serviceName}：${localizedRuntimeMessage(current.message, '操作已结束，请查看最新服务状态。')}`)
           await refreshAll()
           setAction((existing) => existing?.operation?.id === operation.id ? null : existing)
+          if (readBackgroundOperation()?.id === operation.id) window.sessionStorage.removeItem(BACKGROUND_OPERATION_STORAGE_KEY)
+          setBackgroundOperation((existing) => existing?.id === operation.id ? null : existing)
           return
         }
       } catch (error) {
@@ -214,6 +250,24 @@ export default function Overview() {
       }
     }
     setAction((existing) => existing?.operation?.id === operation.id ? { ...existing, error: '操作状态轮询超时；请刷新页面查看最新状态。' } : existing)
+  }
+
+  function moveOperationToBackground() {
+    if (!action?.operation || action.operation.status !== 'running') return
+    window.sessionStorage.setItem(BACKGROUND_OPERATION_STORAGE_KEY, JSON.stringify(action.operation))
+    setBackgroundOperation(action.operation)
+    setAction(null)
+    setNotice(`${action.operation.serviceName} 正在后台执行。您可以继续浏览或切换页面；返回总览可查看进度。`)
+  }
+
+  function showBackgroundOperation() {
+    if (!backgroundOperation) return
+    const service = services.find((item) => item.id === backgroundOperation.serviceId)
+    if (!service) {
+      setNotice('后台操作仍在执行，但当前总览未返回对应服务。请稍后刷新。')
+      return
+    }
+    setAction({ service, name: backgroundOperation.action, operation: backgroundOperation })
   }
 
   async function reverifyActiveConnection() {
@@ -244,6 +298,13 @@ export default function Overview() {
 
       {stale && <div className="overview-alert">部分接口暂不可用，已保留最后一次有效数据。{loadError ? ` ${loadError}` : ''}</div>}
       {notice && <div className="overview-notice"><span>{notice}</span><button onClick={() => setNotice(null)}>关闭</button></div>}
+      {backgroundOperation?.status === 'running' && (() => {
+        const progress = operationProgress(backgroundOperation, operationClock)
+        return <section className="background-operation-status" aria-live="polite">
+          <div><strong>后台服务操作正在执行</strong><p>{backgroundOperation.serviceName} · {localizedActionName(backgroundOperation.action)} · 已耗时 {progress.elapsed}</p></div>
+          <button className="btn btn-secondary" onClick={showBackgroundOperation}>查看进度</button>
+        </section>
+      })()}
 
       <section className="overview-metrics" aria-label="系统指标">
         <article className="overview-metric"><span>系统内存</span><strong>{memoryUsagePercent}%</strong><small>{systemMetrics.memoryAvailable} GB 可用 / {systemMetrics.memoryTotal} GB</small></article>
@@ -272,8 +333,9 @@ export default function Overview() {
 
       <section className="section-heading"><div><p className="eyebrow">服务</p><h2>模型服务状态</h2></div><span>状态演示：<i className="state-chip loading">加载</i><i className="state-chip idle">空闲</i><i className="state-chip error">错误</i><i className="state-chip offline">离线</i></span></section>
       <section className="service-grid">
-        {services.map((service) => (
-          <article className={`overview-service status-${service.status}`} key={service.id}>
+        {services.map((service) => {
+          const capacityBlocked = startupCapacityBlocked(service, modelMemoryBudget)
+          return <article className={`overview-service status-${service.status}`} key={service.id}>
             <div className="service-topline"><span className={`state-dot ${service.status}`} /><span className="service-port">{service.port === null ? '无固定端口' : `:${service.port}`}</span></div>
             <h3>{localizedServiceName(service.id, service.name)}</h3>
             <p className="service-status-text">{localizedServiceKind(service.id)} · {statusText[service.status]} · {service.residency === 'resident' ? '常驻' : '按需加载'}</p>
@@ -302,11 +364,13 @@ export default function Overview() {
                 <button disabled={api.mode === 'live' && (controlsBusy || !service.managedActions?.includes('warmup'))} onClick={() => void beginAction(service, 'warmup')}>启动 / 预热</button>
                 <button disabled={api.mode === 'live' && (controlsBusy || !service.managedActions?.includes('restart'))} onClick={() => void beginAction(service, 'restart')}>重启</button>
                 <button className="danger" disabled={api.mode === 'live' && (controlsBusy || !service.managedActions?.includes('stop'))} onClick={() => void beginAction(service, 'stop')}>停止</button>
+                {controlsBusy && <p className="service-action-lock">已有“{activeOperation?.serviceName}”操作正在执行。为避免并发改变 DGX 状态，其他服务操作将在其完成后恢复。</p>}
+                {capacityBlocked && <p className="service-action-capacity">当前可安全分配 {memoryLabel(modelMemoryBudget?.allocatableGiB)}，低于该服务预计占用 {memoryLabel(service.estimatedMemoryGiB)}。启动 / 预热会被资源前检阻止；请先仅通过本客户端停止不需要的文本模型服务，再刷新后重试。</p>}
                 <p>{service.managedActions?.length ? '仅开放已验证固定适配器声明的动作。每次操作都会先创建计划，再由用户确认执行。' : '当前未读到可验证的适配器动作，控制保持禁用。'}</p>
               </div>
-              : <div className="service-actions"><button disabled={api.mode === 'live' && (!localControlEnabled || controlsBusy)} onClick={() => void beginAction(service, 'warmup')}>启动 / 预热</button><button disabled={api.mode === 'live' && (!localControlEnabled || controlsBusy)} onClick={() => void beginAction(service, 'restart')}>重启</button><button className="danger" disabled={api.mode === 'live' && (!localControlEnabled || controlsBusy)} onClick={() => void beginAction(service, 'stop')}>停止</button></div>}
+              : <div className="service-actions"><button disabled={api.mode === 'live' && (!localControlEnabled || controlsBusy)} onClick={() => void beginAction(service, 'warmup')}>启动 / 预热</button><button disabled={api.mode === 'live' && (!localControlEnabled || controlsBusy)} onClick={() => void beginAction(service, 'restart')}>重启</button><button className="danger" disabled={api.mode === 'live' && (!localControlEnabled || controlsBusy)} onClick={() => void beginAction(service, 'stop')}>停止</button>{controlsBusy && <p className="service-action-lock">已有“{activeOperation?.serviceName}”操作正在执行。为避免并发改变 DGX 状态，其他服务操作将在其完成后恢复。</p>}</div>}
           </article>
-        ))}
+        })}
       </section>
 
       <section className="trend-grid">
@@ -314,7 +378,7 @@ export default function Overview() {
         <TrendChart title="统一内存占用" unit="%" values={mockOverviewTrends.map((point) => point.memoryPercent)} accent="var(--accent-secondary)" />
       </section>
 
-      {action && <div className="simulation-backdrop" role="presentation"><section className="simulation-dialog" role="dialog" aria-modal="true" aria-label="服务操作确认"><p className="eyebrow">{api.mode === 'mock' ? '仅模拟操作' : '操作待确认'}</p><h2>{api.mode === 'mock' ? '确认模拟操作' : '确认服务操作'}</h2>{api.mode === 'mock' ? <p>将模拟对“{localizedServiceName(action.service.id, action.service.name)}”执行“{localizedActionName(action.name)}”。不会发送 SSH、Docker 或模型控制命令。</p> : action.planning ? <section className="operation-disclosure" aria-live="polite"><strong>正在创建受控操作计划</strong><p>正在读取当前状态、资源与适配器条件。此阶段不会向 DGX 发送启动、停止或重启请求。</p></section> : action.plan ? (() => { const disclosure = controlDisclosure(action.name); return <section className="operation-disclosure" aria-live="polite"><strong>计划已创建，等待您的确认</strong><dl><div><dt>目标服务</dt><dd>{localizedServiceName(action.service.id, action.service.name)}</dd></div><div><dt>计划动作</dt><dd>{disclosure.actionLabel}</dd></div><div><dt>风险级别</dt><dd>{action.plan.risk === 'high' ? '高' : '中'}</dd></div><div><dt>计划失效</dt><dd>{planExpiryLabel(action.plan.expiresAt)}</dd></div></dl><p>{disclosure.executionNote}</p><p>{disclosure.impact}</p><p>{action.plan.requiresIdle ? '执行前仍会确认目标服务没有活动连接；NVFP4 还会检查请求与队列。' : '确认后将由本机后台执行已验证固定动作并复核结果。'}</p><p>失败不会自动重试；执行中会显示真实阶段和已用时间，不以超时上限伪造完成倒计时。</p></section> })() : <p className={action.error?.startsWith('内存安全前检') ? 'overview-alert' : ''}>{action.error ?? '无法创建操作计划。'}</p>}{action.needsConnectionReverification && <p className="overview-alert" role="alert">当前操作计划已失效。请先重新验证连接，验证完成后再重新创建计划。</p>}{action.operation && (action.operation.status === 'running' ? (() => { const progress = operationProgress(action.operation, operationClock); return <section className="operation-progress" aria-live="polite"><div className="operation-progress-heading"><strong>正在{action.operation.phase === 'verifying' ? '验证服务状态' : '执行固定操作'}</strong><span>{progress.overrun ? '超过等待上限，仍在等待适配器结果' : `已耗时 ${progress.elapsed}`}</span></div><div className="operation-progress-track" role="progressbar" aria-label="操作进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}><span style={{ width: `${progress.percent}%` }} /></div><div className="operation-progress-meta"><span>等待上限 {progress.limit}</span><span>{progress.overrun ? '请保持此页面打开或稍后刷新状态' : '上限不是预计完成时间'}</span></div><p>{localizedRuntimeMessage(action.operation.message, '正在执行固定服务操作。')}</p></section> })() : <p><strong>{localizedOperationPhase(action.operation.phase)}</strong>：{localizedRuntimeMessage(action.operation.message, '操作已结束，请查看服务状态。')}</p>)}{action.error && action.plan && <p className="overview-alert">{action.error}</p>}<div><button className="btn btn-secondary" onClick={() => setAction(null)} disabled={action.operation?.status === 'running'}>{action.operation?.status === 'running' ? '执行中' : '取消'}</button>{action.needsConnectionReverification && <button className="btn btn-primary" disabled={reverifyingConnection} onClick={() => void reverifyActiveConnection()}>{reverifyingConnection ? '重新验证中…' : '重新验证连接'}</button>}<button className="btn btn-primary" onClick={() => { if (actionBlocked && !action.needsConnectionReverification) { void beginAction(action.service, action.name) } else { void confirmAction() } }} disabled={Boolean(action.planning || !action.plan || action.operation || action.needsConnectionReverification)}>{api.mode === 'mock' ? '确认模拟' : actionBlocked ? action.needsConnectionReverification ? '等待重新验证' : '重新创建计划' : action.operation ? '已提交' : '确认并执行'}</button></div></section></div>}
+      {action && <div className="simulation-backdrop" role="presentation"><section className="simulation-dialog" role="dialog" aria-modal="true" aria-label="服务操作确认"><p className="eyebrow">{api.mode === 'mock' ? '仅模拟操作' : '操作待确认'}</p><h2>{api.mode === 'mock' ? '确认模拟操作' : '确认服务操作'}</h2>{api.mode === 'mock' ? <p>将模拟对“{localizedServiceName(action.service.id, action.service.name)}”执行“{localizedActionName(action.name)}”。不会发送 SSH、Docker 或模型控制命令。</p> : action.planning ? <section className="operation-disclosure" aria-live="polite"><strong>正在创建受控操作计划</strong><p>正在读取当前状态、资源与适配器条件。此阶段不会向 DGX 发送启动、停止或重启请求。</p></section> : action.plan ? (() => { const disclosure = controlDisclosure(action.name); return <section className="operation-disclosure" aria-live="polite"><strong>计划已创建，等待您的确认</strong><dl><div><dt>目标服务</dt><dd>{localizedServiceName(action.service.id, action.service.name)}</dd></div><div><dt>计划动作</dt><dd>{disclosure.actionLabel}</dd></div><div><dt>风险级别</dt><dd>{action.plan.risk === 'high' ? '高' : '中'}</dd></div><div><dt>计划失效</dt><dd>{planExpiryLabel(action.plan.expiresAt)}</dd></div></dl><p>{disclosure.executionNote}</p><p>{disclosure.impact}</p><p>{action.plan.requiresIdle ? '执行前仍会确认目标服务没有活动连接；NVFP4 还会检查请求与队列。' : '确认后将由本机后台执行已验证固定动作并复核结果。'}</p><p>失败不会自动重试；执行中会显示真实阶段和已用时间，不以超时上限伪造完成倒计时。</p></section> })() : <p className={action.error?.startsWith('内存安全前检') ? 'overview-alert' : ''}>{action.error ?? '无法创建操作计划。'}</p>}{action.needsConnectionReverification && <p className="overview-alert" role="alert">当前操作计划已失效。请先重新验证连接，验证完成后再重新创建计划。</p>}{action.operation && (action.operation.status === 'running' ? (() => { const progress = operationProgress(action.operation, operationClock); return <section className="operation-progress" aria-live="polite"><div className="operation-progress-heading"><strong>正在{action.operation.phase === 'verifying' ? '验证服务状态' : '执行固定操作'}</strong><span>{progress.overrun ? '超过等待上限，仍在等待适配器结果' : `已耗时 ${progress.elapsed}`}</span></div><div className="operation-progress-track" role="progressbar" aria-label="操作进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}><span style={{ width: `${progress.percent}%` }} /></div><div className="operation-progress-meta"><span>等待上限 {progress.limit}</span><span>{progress.overrun ? '请保持此页面打开或稍后刷新状态' : '上限不是预计完成时间'}</span></div><p>{localizedRuntimeMessage(action.operation.message, '正在执行固定服务操作。')}</p></section> })() : <p><strong>{localizedOperationPhase(action.operation.phase)}</strong>：{localizedRuntimeMessage(action.operation.message, '操作已结束，请查看服务状态。')}</p>)}{action.error && action.plan && <p className="overview-alert">{action.error}</p>}<div><button className="btn btn-secondary" onClick={() => setAction(null)} disabled={action.operation?.status === 'running'}>{action.operation?.status === 'running' ? '执行中' : '取消'}</button>{action.operation?.status === 'running' && <button className="btn btn-secondary" onClick={moveOperationToBackground}>转入后台</button>}{action.needsConnectionReverification && <button className="btn btn-primary" disabled={reverifyingConnection} onClick={() => void reverifyActiveConnection()}>{reverifyingConnection ? '重新验证中…' : '重新验证连接'}</button>}<button className="btn btn-primary" onClick={() => { if (actionBlocked && !action.needsConnectionReverification) { void beginAction(action.service, action.name) } else { void confirmAction() } }} disabled={Boolean(action.planning || !action.plan || action.operation || action.needsConnectionReverification)}>{api.mode === 'mock' ? '确认模拟' : actionBlocked ? action.needsConnectionReverification ? '等待重新验证' : '重新创建计划' : action.operation ? '已提交' : '确认并执行'}</button></div></section></div>}
     </div>
   )
 }

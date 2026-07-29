@@ -364,6 +364,38 @@
   margin: var(--spacing-xs) 0 0;
 }
 
+.service-actions > p {
+  grid-column: 1 / -1;
+  margin: var(--spacing-xs) 0 0;
+}
+
+.service-action-lock {
+  color: var(--warning);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.service-action-capacity {
+  color: var(--error);
+  font-size: var(--font-size-xs);
+  line-height: 1.55;
+}
+
+.background-operation-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: var(--border-radius);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-card));
+}
+
+.background-operation-status strong { color: var(--accent); }
+.background-operation-status p { margin: 3px 0 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
+
 .service-port,
 .service-status-text,
 .service-stat-grid dt {
