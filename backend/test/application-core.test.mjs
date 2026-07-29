@@ -288,8 +288,19 @@ test('model service precheck blocks without a fixed adapter and passes only for 
     const blockedWarmup = await insufficientCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'warmup' } });
     assert.equal(blockedWarmup.status, 409);
     assert.equal(blockedWarmup.payload.code, 'STARTUP_PRECHECK_BLOCKED');
-    const restartDespiteCurrentUsage = await insufficientCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'restart' } });
-    assert.equal(restartDespiteCurrentUsage.status, 201);
+    const blockedUnloadedRestart = await insufficientCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'restart' } });
+    assert.equal(blockedUnloadedRestart.status, 409);
+    assert.equal(blockedUnloadedRestart.payload.code, 'STARTUP_PRECHECK_BLOCKED');
+    const loadedRestartCore = createApplicationCore({
+      profileStore,
+      modelServiceRegistry,
+      modelCatalog: { loadForTarget: async () => ({ entries: [{ id: '123e4567-e89b-12d3-a456-426614174001', modelId: 'text-model' }] }) },
+      modelServiceAdapterDiscovery: async () => [{ id: 'adapter-text', version: '1.0.0', integritySha256: `sha256:${'b'.repeat(64)}`, templateId: 'openai-compatible-text', modelIds: ['text-model'], actions: ['warmup', 'restart', 'stop'], healthCheck: { kind: 'service-health' }, resourceBudget: { estimatedMemoryMiB: 4096 } }],
+      snapshotProvider: async () => ({ system: { modelMemoryBudget: { allocatableMiB: 2048 }, queueDepth: 0, modelRuntimes: [{ modelId: 'text-model', usedMiB: 4096 }] } }),
+      modelServiceExecutor: async (input) => { executedManagedActions.push(input); },
+    });
+    const restartLoadedModel = await loadedRestartCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'restart' } });
+    assert.equal(restartLoadedModel.status, 201);
     const stoppedDespiteCurrentUsage = await insufficientCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'stop' } });
     assert.equal(stoppedDespiteCurrentUsage.status, 201);
 

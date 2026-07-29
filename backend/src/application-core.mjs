@@ -256,7 +256,11 @@ export function createApplicationCore({
       try { snapshot = await snapshotProvider(); } catch { snapshot = null; }
     }
     const generic = genericServicePrecheck({ entry, template, adapter, snapshot });
-    return result(200, { configurationId: entry.id, entry, ...generic });
+    // Restart only releases capacity first when this exact registered model is
+    // actually present in the same read-only runtime snapshot.  An unloaded
+    // service's restart is a start and must pass the startup resource gate.
+    const runtimeLoaded = Boolean(observedModelRuntime(entry, snapshot));
+    return result(200, { configurationId: entry.id, entry, runtimeLoaded, ...generic });
   }
 
   async function dispatch(input) {
@@ -458,12 +462,11 @@ export function createApplicationCore({
         if (entry.status !== 'registered') return error(409, 'Managed service registration is required.', { code: 'SERVICE_NOT_REGISTERED' });
         const adapter = checked.payload.adapter;
         if (!adapter?.actions?.includes(body.action)) return error(409, 'The verified adapter does not support this action.', { code: 'ADAPTER_ACTION_UNAVAILABLE' });
-        // A warmup adds a model to the current state, so it needs a passing
-        // capacity/queue precheck.  Restart is different: the fixed adapter
-        // stops this same service before starting it again.  Blocking that
-        // path because its currently loaded memory reduces free capacity makes
-        // a healthy service impossible to restart or stop from the client.
-        if (body.action === 'warmup' && !checked.payload.eligible) return error(409, 'Managed service startup precheck is not satisfied.', { code: 'STARTUP_PRECHECK_BLOCKED' });
+        // An unloaded restart is another form of startup. Only a restart of a
+        // runtime observed in this snapshot may rely on releasing its own
+        // memory first; stop never needs a startup capacity check.
+        const requiresStartupPrecheck = body.action === 'warmup' || (body.action === 'restart' && !checked.payload.runtimeLoaded);
+        if (requiresStartupPrecheck && !checked.payload.eligible) return error(409, 'Managed service startup precheck is not satisfied.', { code: 'STARTUP_PRECHECK_BLOCKED' });
         const summary = body.action === 'warmup'
           ? `将启动/预热“${entry.displayName}”。适配器如声明独占运行，可能停止其他 LLM。`
           : body.action === 'restart'
@@ -484,7 +487,8 @@ export function createApplicationCore({
         if (!modelServiceExecutor) return error(503, 'Managed service execution is unavailable.');
         const checked = await currentModelServicePrecheck(plan.serviceId); if (checked.status !== 200) return checked;
         const adapter = checked.payload.adapter; if (!adapter || adapter.id !== plan.binding.adapterId || adapter.version !== plan.binding.adapterVersion || adapter.integritySha256 !== plan.binding.adapterIntegritySha256) return error(409, 'The verified adapter changed. Create a new plan.', { code: 'MANAGED_SERVICE_BINDING_CHANGED' });
-        if (plan.action === 'warmup' && !checked.payload.eligible) return error(409, 'Managed service startup precheck is not satisfied.', { code: 'STARTUP_PRECHECK_BLOCKED' });
+        const requiresStartupPrecheck = plan.action === 'warmup' || (plan.action === 'restart' && !checked.payload.runtimeLoaded);
+        if (requiresStartupPrecheck && !checked.payload.eligible) return error(409, 'Managed service startup precheck is not satisfied.', { code: 'STARTUP_PRECHECK_BLOCKED' });
         await modelServiceExecutor({ adapterId: adapter.id, action: plan.action }); managedServicePlans.delete(plan.id);
         return result(202, { serviceId: plan.serviceId, action: plan.action, status: 'submitted', message: '已提交固定适配器操作；请刷新服务状态确认结果。' });
       } catch (cause) { return error(503, cause instanceof Error ? cause.message : 'Managed service execution is unavailable.'); }
