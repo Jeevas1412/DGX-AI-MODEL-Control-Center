@@ -109,7 +109,7 @@ export interface ModelServiceDraft { id: string; catalogEntryId: string; templat
 export interface ModelServicePrecheck { configurationId: string; eligible: boolean; registrationEligible?: boolean; checks: Array<{ id: string; status: 'passed' | 'blocked' | 'failed'; message: string }>; nextStep: string }
 export interface ModelServiceRegistrationPlan { id: string; configurationId: string; action: 'register-managed-service'; risk: 'high'; summary: string; createdAt: string; expiresAt: string; status: 'awaiting-confirmation' }
 export interface ManagedServicePlan { id: string; serviceId: string; action: LocalControlAction; risk: 'high'; summary: string; createdAt: string; expiresAt: string; status: 'awaiting-confirmation'; requiresIdle?: boolean }
-export interface ModelServiceAdapter { id: string; version: string; templateId: string; modelIds: string[]; integritySha256: string; actions: LocalControlAction[]; healthCheck: { kind: 'service-health' | 'workflow-ready' }; resourceBudget: { estimatedMemoryMiB: number }; parameters?: Array<{ id: string; type: 'integer' | 'number' | 'boolean'; minimum: number | null; maximum: number | null; step: number | null; risk: 'medium' | 'high' }> }
+export interface ModelServiceAdapter { id: string; version: string; templateId: string; modelIds: string[]; integritySha256: string; actions: LocalControlAction[]; healthCheck: { kind: 'service-health' | 'workflow-ready' }; resourceBudget: { estimatedMemoryMiB: number; basis?: 'configured-reservation' | 'measured-profile'; observedMemoryMiB?: number | null; startupBufferMiB?: number | null }; parameters?: Array<{ id: string; type: 'integer' | 'number' | 'boolean'; minimum: number | null; maximum: number | null; step: number | null; risk: 'medium' | 'high' }> }
 export interface Nvfp4ParameterReview {
   review: { approvedForExecution: false; errors: string[]; changes: Array<{ field: string; flag: string; from: unknown; to: unknown; risk: 'high'; requiresRestart: true }>; requiredGates: string[] }
   audit: { changeId: string; recordedAt: string; snapshotId: string; scriptHash: string; executionAllowed: false; executionResult: 'not-executed' }
@@ -216,7 +216,9 @@ function mapServices(payload: unknown): ServiceInfo[] {
       runningRequests: 0,
       observedMemoryGiB: nullableNumber(raw.observedMemoryMiB) === null ? null : Math.round((nullableNumber(raw.observedMemoryMiB) as number / 1024) * 10) / 10,
       estimatedMemoryGiB: nullableNumber(raw.estimatedMemoryMiB) === null ? null : Math.round((nullableNumber(raw.estimatedMemoryMiB) as number / 1024) * 10) / 10,
-      estimateSource: raw.estimateSource === 'configured-reservation' || raw.estimateSource === 'adapter-reservation' ? raw.estimateSource : null,
+      estimateSource: raw.estimateSource === 'configured-reservation' || raw.estimateSource === 'adapter-reservation' || raw.estimateSource === 'measured-profile' ? raw.estimateSource : null,
+      estimatedMemoryBaselineGiB: nullableNumber(raw.estimatedMemoryBaselineMiB) === null ? null : Math.round((nullableNumber(raw.estimatedMemoryBaselineMiB) as number / 1024) * 10) / 10,
+      startupBufferGiB: nullableNumber(raw.startupBufferMiB) === null ? null : Math.round((nullableNumber(raw.startupBufferMiB) as number / 1024) * 10) / 10,
       control: raw.control === 'managed' ? 'managed' : raw.control === 'local' ? 'local' : 'none',
       managedServiceId: text(raw.managedServiceId) || undefined,
       managedActions: Array.isArray(raw.managedActions) ? raw.managedActions.filter((action): action is LocalControlAction => action === 'warmup' || action === 'restart' || action === 'stop') : [],

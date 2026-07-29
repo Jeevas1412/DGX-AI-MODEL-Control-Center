@@ -24,9 +24,13 @@ export interface ServiceInfo {
   runningRequests?: number;
   /** Running model process allocation observed through the read-only DGX probe. */
   observedMemoryGiB?: number | null;
-  /** Conservative reservation derived from a verified launcher configuration. */
+  /** Bounded startup budget from a verified launcher or a measured fixed profile. */
   estimatedMemoryGiB?: number | null;
-  estimateSource?: 'configured-reservation' | 'adapter-reservation' | null;
+  estimateSource?: 'configured-reservation' | 'adapter-reservation' | 'measured-profile' | null;
+  /** Observed stable runtime allocation for a measured fixed profile, if available. */
+  estimatedMemoryBaselineGiB?: number | null;
+  /** Additional bounded allocation retained for model preheat, if available. */
+  startupBufferGiB?: number | null;
   /** Built-in controls and registered adapter controls intentionally use different flows. */
   control?: 'local' | 'managed' | 'none';
   managedServiceId?: string;

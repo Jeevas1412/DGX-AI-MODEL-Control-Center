@@ -30,6 +30,17 @@ function memoryLabel(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : `${value.toFixed(1)} GiB`
 }
 
+function estimateLabel(service: ServiceInfo) {
+  if (service.estimatedMemoryGiB === null || service.estimatedMemoryGiB === undefined) return '—'
+  if (service.estimateSource === 'measured-profile') return `${memoryLabel(service.estimatedMemoryGiB)}（实测基线 + 预热缓冲）`
+  return `${memoryLabel(service.estimatedMemoryGiB)}（适配器启动预算）`
+}
+
+function estimateDetail(service: ServiceInfo) {
+  if (service.estimateSource !== 'measured-profile' || service.estimatedMemoryBaselineGiB === null || service.estimatedMemoryBaselineGiB === undefined || service.startupBufferGiB === null || service.startupBufferGiB === undefined) return null
+  return `实测稳定占用 ${memoryLabel(service.estimatedMemoryBaselineGiB)} + 预热缓冲 ${memoryLabel(service.startupBufferGiB)} = 启动预算 ${memoryLabel(service.estimatedMemoryGiB)}。该预算仅适用于当前已验证的固定启动配置。`
+}
+
 const statusText: Record<ServiceStatus, string> = {
   running: '运行中',
   idle: '空闲',
@@ -350,9 +361,10 @@ export default function Overview() {
               <div><dt>运行时间</dt><dd>{service.uptime}</dd></div><div><dt>TTFT</dt><dd>{service.latency ? `${service.latency} ms` : '—'}</dd></div>
               <div><dt>吞吐</dt><dd>{service.tokensPerSecond ? `${service.tokensPerSecond} tok/s` : '—'}</dd></div><div><dt>请求</dt><dd>{service.runningRequests ?? 0} / {service.requestQueue}</dd></div>
               <div><dt>实际占用</dt><dd>{service.observedMemoryGiB === null || service.observedMemoryGiB === undefined ? (service.status === 'running' ? '运行中，未归属进程' : '未运行（无进程占用）') : `${memoryLabel(service.observedMemoryGiB)}（进程观察）`}</dd></div>
-              <div><dt>预计占用</dt><dd>{service.estimatedMemoryGiB === null || service.estimatedMemoryGiB === undefined ? '—' : `${memoryLabel(service.estimatedMemoryGiB)}（配置预留）`}</dd></div>
+              <div><dt>预计占用</dt><dd>{estimateLabel(service)}</dd></div>
               {service.estimatedMemoryGiB !== null && service.estimatedMemoryGiB !== undefined && modelMemoryBudget?.allocatableGiB !== null && modelMemoryBudget?.allocatableGiB !== undefined && (
                 <>
+                  {estimateDetail(service) && <div className="memory-explanation"><dt>预算依据</dt><dd>{estimateDetail(service)}</dd></div>}
                   <div className="memory-explanation"><dt>安全分配</dt><dd>系统可用 {memoryLabel(modelMemoryBudget.freeGiB)} − 系统安全预留 {memoryLabel(modelMemoryBudget.safetyReserveGiB)} = 可安全分配 {memoryLabel(modelMemoryBudget.allocatableGiB)}。</dd></div>
                   <div className={`memory-advice ${service.estimatedMemoryGiB <= modelMemoryBudget.allocatableGiB ? 'safe' : 'unsafe'}`}><dt>启动评估</dt><dd>{service.estimatedMemoryGiB <= modelMemoryBudget.allocatableGiB ? '预计占用未超过可安全分配' : `${memoryLabel(service.estimatedMemoryGiB)} − ${memoryLabel(modelMemoryBudget.allocatableGiB)} = 预计缺口 ${memoryLabel(service.estimatedMemoryGiB - modelMemoryBudget.allocatableGiB)}`}</dd></div>
                   <div className="memory-footnote"><dt>说明</dt><dd>模型的启动、停止与重启只会在本客户端由用户创建计划并二次确认后执行。系统安全预留用于驱动、缓存及瞬时峰值，不代表任何服务会自动获得或占用该资源。</dd></div>

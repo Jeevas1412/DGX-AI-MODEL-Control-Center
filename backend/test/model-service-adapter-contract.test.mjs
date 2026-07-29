@@ -12,6 +12,13 @@ test('generic model service adapter manifest accepts only fixed product fields',
   assert.throws(() => validateModelServiceAdapterManifest({ ...manifest, healthCheck: { kind: 'service-health', url: 'http://anything' } }), /Invalid adapter health check/);
 });
 
+test('measured resource profiles require an exact observed-plus-buffer budget', () => {
+  const measured = validateModelServiceAdapterManifest({ ...manifest, resourceBudget: { estimatedMemoryMiB: 32768, basis: 'measured-profile', observedMemoryMiB: 27657, startupBufferMiB: 5111 } });
+  assert.deepEqual(measured.resourceBudget, { estimatedMemoryMiB: 32768, basis: 'measured-profile', observedMemoryMiB: 27657, startupBufferMiB: 5111 });
+  assert.throws(() => validateModelServiceAdapterManifest({ ...manifest, resourceBudget: { estimatedMemoryMiB: 32768, basis: 'measured-profile', observedMemoryMiB: 27657, startupBufferMiB: 4096 } }), /Measured adapter resource budget/);
+  assert.throws(() => validateModelServiceAdapterManifest({ ...manifest, resourceBudget: { estimatedMemoryMiB: 4096, basis: 'configured-reservation', observedMemoryMiB: 2048, startupBufferMiB: 2048 } }), /Configured adapter resource budget/);
+});
+
 test('generic adapter compatibility binds both template and observed integrity', () => {
   const draft = { templateId: 'openai-compatible-text' };
   assert.equal(compatibleAdapterForDraft({ draft, modelId: 'example-text', manifest, observedIntegritySha256: integrity }).compatible, true);

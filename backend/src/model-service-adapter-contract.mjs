@@ -33,8 +33,17 @@ export function validateModelServiceAdapterManifest(value) {
   if (!Array.isArray(actions) || actions.length === 0 || actions.length > 3 || actions.some((action) => !ACTIONS.has(action) || !template.actions.includes(action)) || new Set(actions).size !== actions.length) throw new Error('Adapter actions are invalid.');
   const healthCheck = exactObject(manifest.healthCheck, ['kind'], 'adapter health check');
   if (!['service-health', 'workflow-ready'].includes(healthCheck.kind)) throw new Error('Adapter health check is invalid.');
-  const resourceBudget = exactObject(manifest.resourceBudget, ['estimatedMemoryMiB'], 'adapter resource budget');
+  const resourceBudget = exactObject(manifest.resourceBudget, ['estimatedMemoryMiB', 'basis', 'observedMemoryMiB', 'startupBufferMiB'], 'adapter resource budget');
   if (!Number.isInteger(resourceBudget.estimatedMemoryMiB) || resourceBudget.estimatedMemoryMiB < 0 || resourceBudget.estimatedMemoryMiB > 1024 * 1024) throw new Error('Adapter resource budget is invalid.');
+  const budgetBasis = resourceBudget.basis === undefined ? 'configured-reservation' : resourceBudget.basis;
+  if (!['configured-reservation', 'measured-profile'].includes(budgetBasis)) throw new Error('Adapter resource budget basis is invalid.');
+  const observedMemoryMiB = resourceBudget.observedMemoryMiB === undefined ? null : resourceBudget.observedMemoryMiB;
+  const startupBufferMiB = resourceBudget.startupBufferMiB === undefined ? null : resourceBudget.startupBufferMiB;
+  if (budgetBasis === 'measured-profile') {
+    if (!Number.isInteger(observedMemoryMiB) || !Number.isInteger(startupBufferMiB) || observedMemoryMiB < 0 || startupBufferMiB < 0 || observedMemoryMiB + startupBufferMiB !== resourceBudget.estimatedMemoryMiB) throw new Error('Measured adapter resource budget is invalid.');
+  } else if (observedMemoryMiB !== null || startupBufferMiB !== null) {
+    throw new Error('Configured adapter resource budget cannot include measured values.');
+  }
   const rollback = exactObject(manifest.rollback, ['kind'], 'adapter rollback');
   if (rollback.kind !== 'restore-previous-registration') throw new Error('Adapter rollback is invalid.');
   if (manifest.artifact !== 'run.sh') throw new Error('Adapter artifact is invalid.');
@@ -55,7 +64,10 @@ export function validateModelServiceAdapterManifest(value) {
     }
     return Object.freeze({ id, type: item.type, minimum: item.minimum, maximum: item.maximum, step: item.step, risk: item.risk });
   });
-  return Object.freeze({ schemaVersion: 1, id: nonEmpty(manifest.id, 'adapter id', /^adapter-[a-z0-9-]{3,64}$/), version: nonEmpty(manifest.version, 'adapter version', /^\d+\.\d+\.\d+$/), templateId: template.id, modelIds: Object.freeze([...modelIds]), artifact: 'run.sh', integritySha256: nonEmpty(manifest.integritySha256, 'adapter integrity', /^sha256:[a-f0-9]{64}$/), actions: Object.freeze([...actions]), healthCheck: Object.freeze({ kind: healthCheck.kind }), resourceBudget: Object.freeze({ estimatedMemoryMiB: resourceBudget.estimatedMemoryMiB }), rollback: Object.freeze({ kind: rollback.kind }), parameters: Object.freeze(safeParameters) });
+  const safeResourceBudget = budgetBasis === 'measured-profile'
+    ? Object.freeze({ estimatedMemoryMiB: resourceBudget.estimatedMemoryMiB, basis: budgetBasis, observedMemoryMiB, startupBufferMiB })
+    : Object.freeze({ estimatedMemoryMiB: resourceBudget.estimatedMemoryMiB });
+  return Object.freeze({ schemaVersion: 1, id: nonEmpty(manifest.id, 'adapter id', /^adapter-[a-z0-9-]{3,64}$/), version: nonEmpty(manifest.version, 'adapter version', /^\d+\.\d+\.\d+$/), templateId: template.id, modelIds: Object.freeze([...modelIds]), artifact: 'run.sh', integritySha256: nonEmpty(manifest.integritySha256, 'adapter integrity', /^sha256:[a-f0-9]{64}$/), actions: Object.freeze([...actions]), healthCheck: Object.freeze({ kind: healthCheck.kind }), resourceBudget: safeResourceBudget, rollback: Object.freeze({ kind: rollback.kind }), parameters: Object.freeze(safeParameters) });
 }
 
 export function compatibleAdapterForDraft({ draft, modelId, manifest, observedIntegritySha256 }) {
