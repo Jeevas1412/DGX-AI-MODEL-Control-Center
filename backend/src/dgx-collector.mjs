@@ -128,7 +128,7 @@ def parse_model_runtimes(compute_apps):
         port_match = re.search(r'--port(?:=|\s+)(\d{1,5})\b', args)
         engine = None
         model_id = None
-        if re.search(r'(^|[\s/])vllm\s+serve(\s|$)', args):
+        if re.search(r'(^|[\s/])vllm\s+serve(\s|$)', args) or re.search(r'\bvllm\.entrypoints\.openai\.api_server\b', args):
             model_match = re.search(r'--served-model-name(?:=|\s+)([A-Za-z0-9._-]{1,128})\b', args)
             if model_match:
                 engine, model_id = 'vllm', model_match.group(1)

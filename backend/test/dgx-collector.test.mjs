@@ -56,6 +56,19 @@ test('keeps an observed vLLM runtime separate from configured capacity and uses 
   assert.equal(snapshot.system.vllmRuntimes[1].port, 8096);
 });
 
+test('keeps a vLLM OpenAI API-server runtime visible when it uses the non-vllm-serve entrypoint', () => {
+  const snapshot = snapshotFromProbe({
+    ...probe,
+    gpu: {
+      ...probe.gpu,
+      computeApps: [{ pid: 2, processName: 'VLLM::EngineCore', usedMiB: 61799 }],
+      modelRuntimes: [{ engine: 'vllm', port: 8095, modelId: 'hy-mt2-30b-a3b-fp8', usedMiB: 61799 }],
+    },
+  });
+  assert.equal(snapshot.system.modelMemoryBudget.observedModelMemoryMiB, 61799);
+  assert.equal(snapshot.system.modelRuntimes[0].modelId, 'hy-mt2-30b-a3b-fp8');
+});
+
 test('reports a conservative configured reservation for an unloaded model without treating it as observed use', () => {
   const snapshot = snapshotFromProbe({ ...probe, vlm: { ...probe.vlm, backendRunning: false }, gpu: { ...probe.gpu, modelRuntimes: probe.gpu.modelRuntimes.filter((item) => item.port !== 8005) } });
   const vlm = snapshot.services.find((service) => service.id === 'vlm');

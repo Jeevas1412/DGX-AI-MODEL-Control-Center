@@ -280,7 +280,7 @@ export default function Overview() {
             <dl className="service-stat-grid">
               <div><dt>运行时间</dt><dd>{service.uptime}</dd></div><div><dt>TTFT</dt><dd>{service.latency ? `${service.latency} ms` : '—'}</dd></div>
               <div><dt>吞吐</dt><dd>{service.tokensPerSecond ? `${service.tokensPerSecond} tok/s` : '—'}</dd></div><div><dt>请求</dt><dd>{service.runningRequests ?? 0} / {service.requestQueue}</dd></div>
-              <div><dt>实际占用</dt><dd>{service.observedMemoryGiB === null || service.observedMemoryGiB === undefined ? '—' : `${memoryLabel(service.observedMemoryGiB)}（进程观察）`}</dd></div>
+              <div><dt>实际占用</dt><dd>{service.observedMemoryGiB === null || service.observedMemoryGiB === undefined ? (service.status === 'running' ? '运行中，未归属进程' : '未运行（无进程占用）') : `${memoryLabel(service.observedMemoryGiB)}（进程观察）`}</dd></div>
               <div><dt>预计占用</dt><dd>{service.estimatedMemoryGiB === null || service.estimatedMemoryGiB === undefined ? '—' : `${memoryLabel(service.estimatedMemoryGiB)}（配置预留）`}</dd></div>
               {service.estimatedMemoryGiB !== null && service.estimatedMemoryGiB !== undefined && modelMemoryBudget?.allocatableGiB !== null && modelMemoryBudget?.allocatableGiB !== undefined && (
                 <>
