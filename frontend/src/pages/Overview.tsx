@@ -346,6 +346,7 @@ export default function Overview() {
       <section className="service-grid">
         {services.map((service) => {
           const capacityBlocked = startupCapacityBlocked(service, modelMemoryBudget)
+          const managedModelLoaded = service.control === 'managed' && service.observedMemoryGiB !== null && service.observedMemoryGiB !== undefined
           return <article className={`overview-service status-${service.status}`} key={service.id}>
             <div className="service-topline"><span className={`state-dot ${service.status}`} /><span className="service-port">{service.port === null ? '无固定端口' : `:${service.port}`}</span></div>
             <h3>{localizedServiceName(service.id, service.name)}</h3>
@@ -373,10 +374,11 @@ export default function Overview() {
             </dl>
             {service.control === 'managed'
               ? <div className="service-actions managed-service-actions">
-                <button disabled={api.mode === 'live' && (controlsBusy || !service.managedActions?.includes('warmup'))} onClick={() => void beginAction(service, 'warmup')}>启动 / 预热</button>
+                <button disabled={api.mode === 'live' && (managedModelLoaded || controlsBusy || !service.managedActions?.includes('warmup'))} onClick={() => void beginAction(service, 'warmup')}>{managedModelLoaded ? '已加载' : '启动 / 预热'}</button>
                 <button disabled={api.mode === 'live' && (controlsBusy || !service.managedActions?.includes('restart'))} onClick={() => void beginAction(service, 'restart')}>重启</button>
                 <button className="danger" disabled={api.mode === 'live' && (controlsBusy || !service.managedActions?.includes('stop'))} onClick={() => void beginAction(service, 'stop')}>停止</button>
                 {controlsBusy && <p className="service-action-lock">已有“{activeOperation?.serviceName}”操作正在执行。为避免并发改变 DGX 状态，其他服务操作将在其完成后恢复。</p>}
+                {managedModelLoaded && <p className="service-action-capacity">当前已从 DGX 进程观察到该模型正在加载。无需再次预热；如确需改变状态，请创建“重启”或“停止”计划。</p>}
                 {capacityBlocked && <p className="service-action-capacity">当前可安全分配 {memoryLabel(modelMemoryBudget?.allocatableGiB)}，低于该服务预计占用 {memoryLabel(service.estimatedMemoryGiB)}。启动 / 预热会被资源前检阻止；请先仅通过本客户端停止不需要的文本模型服务，再刷新后重试。</p>}
                 <p>{service.managedActions?.length ? '仅开放已验证固定适配器声明的动作。每次操作都会先创建计划，再由用户确认执行。' : '当前未读到可验证的适配器动作，控制保持禁用。'}</p>
               </div>

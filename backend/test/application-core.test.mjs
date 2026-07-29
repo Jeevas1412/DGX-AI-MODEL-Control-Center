@@ -301,6 +301,9 @@ test('model service precheck blocks without a fixed adapter and passes only for 
     });
     const restartLoadedModel = await loadedRestartCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'restart' } });
     assert.equal(restartLoadedModel.status, 201);
+    const warmupLoadedModel = await loadedRestartCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'warmup' } });
+    assert.equal(warmupLoadedModel.status, 409);
+    assert.equal(warmupLoadedModel.payload.code, 'SERVICE_ALREADY_LOADED');
     const stoppedDespiteCurrentUsage = await insufficientCore.dispatch({ method: 'POST', path: `/api/managed-services/${draft.id}/plans`, body: { action: 'stop' } });
     assert.equal(stoppedDespiteCurrentUsage.status, 201);
 

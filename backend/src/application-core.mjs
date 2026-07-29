@@ -464,6 +464,12 @@ export function createApplicationCore({
         if (entry.status !== 'registered') return error(409, 'Managed service registration is required.', { code: 'SERVICE_NOT_REGISTERED' });
         const adapter = checked.payload.adapter;
         if (!adapter?.actions?.includes(body.action)) return error(409, 'The verified adapter does not support this action.', { code: 'ADAPTER_ACTION_UNAVAILABLE' });
+        // A positive runtime observation means warmup has already succeeded.
+        // Refuse the duplicate start explicitly instead of falling through to
+        // a capacity gate that makes the loaded state look like a failure.
+        if (body.action === 'warmup' && checked.payload.runtimeLoaded) {
+          return error(409, 'The managed model is already loaded. Use restart or stop if a state change is required.', { code: 'SERVICE_ALREADY_LOADED' });
+        }
         // An unloaded restart is another form of startup. Only a restart of a
         // runtime observed in this snapshot may rely on releasing its own
         // memory first; stop never needs a startup capacity check.
@@ -489,6 +495,7 @@ export function createApplicationCore({
         if (!modelServiceExecutor) return error(503, 'Managed service execution is unavailable.');
         const checked = await currentModelServicePrecheck(plan.serviceId); if (checked.status !== 200) return checked;
         const adapter = checked.payload.adapter; if (!adapter || adapter.id !== plan.binding.adapterId || adapter.version !== plan.binding.adapterVersion || adapter.integritySha256 !== plan.binding.adapterIntegritySha256) return error(409, 'The verified adapter changed. Create a new plan.', { code: 'MANAGED_SERVICE_BINDING_CHANGED' });
+        if (plan.action === 'warmup' && checked.payload.runtimeLoaded) return error(409, 'The managed model is already loaded. Create a restart or stop plan if a state change is required.', { code: 'SERVICE_ALREADY_LOADED' });
         const requiresStartupPrecheck = plan.action === 'warmup' || (plan.action === 'restart' && !checked.payload.runtimeLoaded);
         if (requiresStartupPrecheck && !checked.payload.eligible) return error(409, 'Managed service startup precheck is not satisfied.', { code: 'STARTUP_PRECHECK_BLOCKED' });
         await modelServiceExecutor({ adapterId: adapter.id, action: plan.action }); managedServicePlans.delete(plan.id);
