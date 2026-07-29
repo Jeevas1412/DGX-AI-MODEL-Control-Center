@@ -33,3 +33,14 @@ export function localizedServiceName(id: string, fallback: string) {
 export function localizedServiceKind(id: string) {
   return serviceKinds[id] ?? '模型服务'
 }
+
+/**
+ * Registration only says that the Control Center knows how to manage a
+ * service.  Loading must be based on an observed serving process instead.
+ */
+export function modelLoadState(observedMemoryGiB: number | null | undefined) {
+  if (typeof observedMemoryGiB === 'number') {
+    return { label: '已加载', detail: '已检测到模型进程', tone: 'loaded' as const }
+  }
+  return { label: '未加载', detail: '未检测到模型进程', tone: 'unloaded' as const }
+}

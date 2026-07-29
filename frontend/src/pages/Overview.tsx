@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, type LocalControlAction, type LocalControlOperation, type LocalControlPlan, type ManagedServicePlan } from '../services/api'
 import { useApiResource } from '../services/use-api-resource'
 import { localizedActionName, localizedOperationPhase, localizedRuntimeMessage, requiresConnectionReverification } from '../services/localized-runtime'
-import { localizedServiceKind, localizedServiceName } from '../services/display-labels'
+import { localizedServiceKind, localizedServiceName, modelLoadState } from '../services/display-labels'
 import { controlDisclosure, planExpiryLabel } from '../services/control-disclosure'
 import { mockOverviewTrends } from '../mocks/data'
 import { type ModelMetrics, type ServiceInfo, type ServiceStatus, type SystemMetrics } from '../types'
@@ -277,6 +277,13 @@ export default function Overview() {
             <div className="service-topline"><span className={`state-dot ${service.status}`} /><span className="service-port">{service.port === null ? '无固定端口' : `:${service.port}`}</span></div>
             <h3>{localizedServiceName(service.id, service.name)}</h3>
             <p className="service-status-text">{localizedServiceKind(service.id)} · {statusText[service.status]} · {service.residency === 'resident' ? '常驻' : '按需加载'}</p>
+            {service.control === 'managed' && (() => {
+              const loadState = modelLoadState(service.observedMemoryGiB)
+              return <dl className="model-lifecycle-state" aria-label="模型登记与加载状态">
+                <div className="model-registration-state"><dt>服务登记</dt><dd>已登记（可管理）</dd></div>
+                <div className={`model-load-state ${loadState.tone}`}><dt>加载状态</dt><dd>{loadState.label}<small>{loadState.detail}</small></dd></div>
+              </dl>
+            })()}
             <dl className="service-stat-grid">
               <div><dt>运行时间</dt><dd>{service.uptime}</dd></div><div><dt>TTFT</dt><dd>{service.latency ? `${service.latency} ms` : '—'}</dd></div>
               <div><dt>吞吐</dt><dd>{service.tokensPerSecond ? `${service.tokensPerSecond} tok/s` : '—'}</dd></div><div><dt>请求</dt><dd>{service.runningRequests ?? 0} / {service.requestQueue}</dd></div>
