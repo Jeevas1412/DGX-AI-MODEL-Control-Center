@@ -6,7 +6,7 @@ import { createDgxLogProvider, createDgxSnapshotProvider, createSnapshotCache, e
 const probe = {
   generatedAt: '2026-07-19T06:00:00.000Z',
   memory: { totalBytes: 128 * 1024 ** 3, availableBytes: 96 * 1024 ** 3 },
-  gpu: { name: 'NVIDIA GB10', driverVersion: '580.159.03', utilizationPercent: 92, temperatureCelsius: 71, powerWatts: 70, unifiedTotalBytes: 128 * 1024 ** 3, unifiedFreeBytes: 24 * 1024 ** 3, computeApps: [{ pid: 1208567, processName: 'VLLM::EngineCore', usedMiB: 34853 }, { pid: 1036214, processName: 'python', usedMiB: 170 }] },
+  gpu: { name: 'NVIDIA GB10', driverVersion: '580.159.03', utilizationPercent: 92, temperatureCelsius: 71, powerWatts: 70, unifiedTotalBytes: 128 * 1024 ** 3, unifiedFreeBytes: 24 * 1024 ** 3, computeApps: [{ pid: 1208567, processName: 'VLLM::EngineCore', usedMiB: 34853 }, { pid: 1036214, processName: 'python', usedMiB: 170 }], vllmRuntimes: [{ port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }] },
   nvfp4: {
     backendRunning: true,
     idleForSeconds: 3,
@@ -37,6 +37,21 @@ test('maps a fixed DGX probe into the public monitoring contract', () => {
   assert.equal(snapshot.services.find((service) => service.id === 'nvfp4').observedMemoryMiB, 34853);
   assert.equal(snapshot.system.modelMemoryBudget.source, 'linux-memavailable');
   assert.equal(snapshot.system.modelMemoryBudget.allocatableMiB, 85196.8);
+  assert.equal(snapshot.system.modelMemoryBudget.observedModelMemoryMiB, 34853);
+  assert.equal(snapshot.system.modelMemoryBudget.observedModelRuntimeCount, 1);
+});
+
+test('keeps an observed vLLM runtime separate from configured capacity and uses its actual port for legacy attribution', () => {
+  const snapshot = snapshotFromProbe({
+    ...probe,
+    nvfp4: { ...probe.nvfp4, backendRunning: false },
+    gpu: { ...probe.gpu, vllmRuntimes: [{ port: 8092, modelId: 'qwen3.6-27b-nvfp4', usedMiB: 34853 }, { port: 8096, modelId: 'qwen3.6-35b-a3b-nvfp4', usedMiB: 27657 }] },
+  });
+  const nvfp4 = snapshot.services.find((service) => service.id === 'nvfp4');
+  assert.equal(nvfp4.status, 'running');
+  assert.equal(nvfp4.observedMemoryMiB, 34853);
+  assert.equal(snapshot.system.modelMemoryBudget.observedModelMemoryMiB, 62510);
+  assert.equal(snapshot.system.vllmRuntimes[1].port, 8096);
 });
 
 test('reports a conservative configured reservation for an unloaded model without treating it as observed use', () => {

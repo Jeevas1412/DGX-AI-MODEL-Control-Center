@@ -52,6 +52,22 @@ function disabledLocalControl() {
   return { enabled: false, localOnly: true, services: [], actions: [] };
 }
 
+function runtimeKey(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.toLowerCase().replace(/^nvidia[-_]/, '').replace(/[^a-z0-9]/g, '');
+  return normalized.length >= 6 ? normalized : null;
+}
+
+/** Runtime attribution is display-only. It never grants control authority. */
+function observedVllmRuntime(entry, snapshot) {
+  const expected = runtimeKey(entry?.displayName);
+  const runtimes = snapshot?.system?.vllmRuntimes;
+  if (!expected || !Array.isArray(runtimes)) return null;
+  const match = runtimes.find((item) => runtimeKey(item?.modelId) === expected
+    && Number.isFinite(item?.usedMiB) && item.usedMiB >= 0);
+  return match ? Object.freeze({ usedMiB: match.usedMiB }) : null;
+}
+
 /**
  * Deliberately small public contract for the future RDP adapter.  The
  * renderer must be able to distinguish an unconfigured installation from an
@@ -169,7 +185,7 @@ export function createApplicationCore({
    * state: `registered` means exactly that the service is controllable through
    * a verified adapter, not that it has been started.
    */
-  async function managedServiceInventory() {
+  async function managedServiceInventory(snapshot) {
     if (!modelServiceRegistry || !profileStore) return [];
     const document = await profileStore.load();
     const active = document.profiles.find((item) => item.id === document.activeProfileId);
@@ -186,18 +202,19 @@ export function createApplicationCore({
         && item.version === entry.adapterVersion
         && item.integritySha256 === entry.adapterIntegritySha256);
       const template = MODEL_SERVICE_TEMPLATES.find((item) => item.id === entry.templateId);
+      const runtime = observedVllmRuntime(entry, snapshot);
       return Object.freeze({
         id: `managed-${entry.id}`,
         managedServiceId: entry.id,
         name: entry.displayName,
         type: template?.kind ?? 'generic',
-        status: adapter ? 'registered' : 'adapter-unavailable',
+        status: runtime ? 'running' : adapter ? 'registered' : 'adapter-unavailable',
         port: null,
         uptimeSeconds: null,
-        observedMemoryMiB: null,
+        observedMemoryMiB: runtime?.usedMiB ?? null,
         estimatedMemoryMiB: adapter?.resourceBudget?.estimatedMemoryMiB ?? null,
         estimateSource: adapter ? 'adapter-reservation' : null,
-        residency: 'on-demand',
+        residency: runtime ? 'resident' : 'on-demand',
         control: 'managed',
         adapter: adapter ? { id: adapter.id, version: adapter.version } : null,
         managedActions: adapter ? adapter.actions : [],
@@ -704,7 +721,7 @@ export function createApplicationCore({
     switch (url.pathname) {
       case '/api/health': return result(200, snapshot.health);
       case '/api/services': {
-        const managed = await managedServiceInventory();
+        const managed = await managedServiceInventory(snapshot);
         return result(200, { generatedAt: snapshot.generatedAt, items: [...snapshot.services, ...managed] });
       }
       case '/api/system': return result(200, snapshot.system);

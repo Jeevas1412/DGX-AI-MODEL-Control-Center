@@ -105,6 +105,50 @@ def parse_compute_apps():
             continue
     return items
 
+def parse_vllm_runtimes(compute_apps):
+    """Attribute NVIDIA-reported engine memory to a vLLM serving port.
+
+    This is read-only process ancestry inspection.  Only a bounded port,
+    served-model identifier and observed MiB value leave the target; command
+    lines, container IDs, paths and environment variables never do.
+    """
+    processes = {}
+    for line in command(['ps', '-e', '-o', 'pid=,ppid=,args=']).splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) != 3:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        processes[pid] = {'ppid': ppid, 'args': parts[2]}
+    servers = {}
+    for pid, process in processes.items():
+        args = process['args']
+        if not re.search(r'(^|\s)vllm\s+serve(\s|$)', args):
+            continue
+        port_match = re.search(r'--port(?:=|\s+)(\d{1,5})\b', args)
+        model_match = re.search(r'--served-model-name(?:=|\s+)([A-Za-z0-9._-]{1,128})\b', args)
+        if not port_match or not model_match:
+            continue
+        port = int(port_match.group(1))
+        if not 1 <= port <= 65535:
+            continue
+        servers[pid] = {'port': port, 'modelId': model_match.group(1), 'usedMiB': 0.0}
+    for app in compute_apps:
+        current = app.get('pid')
+        visited = set()
+        for _ in range(32):
+            if not isinstance(current, int) or current in visited:
+                break
+            visited.add(current)
+            server = servers.get(current)
+            if server:
+                server['usedMiB'] += app.get('usedMiB', 0.0)
+                break
+            current = processes.get(current, {}).get('ppid')
+    return [item for item in sorted(servers.values(), key=lambda item: item['port']) if item['usedMiB'] > 0]
+
 def parse_nvfp4_config():
     try:
         with open('/home/jin_jeevas/ai/serve/serve_nvfp4_vllm_lazy_backend.sh', 'r', encoding='utf-8') as handle:
@@ -159,10 +203,12 @@ prefix_queries = metric(metrics, 'vllm:prefix_cache_queries_total')
 accepted_tokens = metric(metrics, 'vllm:spec_decode_num_accepted_tokens_total')
 draft_tokens = metric(metrics, 'vllm:spec_decode_num_draft_tokens_total')
 
+compute_apps = parse_compute_apps()
+
 print(json.dumps({
     'generatedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
     'memory': parse_memory(),
-    'gpu': {**parse_gpu(), 'computeApps': parse_compute_apps(), 'unifiedTotalBytes': image_device.get('vram_total'), 'unifiedFreeBytes': image_device.get('vram_free')},
+    'gpu': {**parse_gpu(), 'computeApps': compute_apps, 'vllmRuntimes': parse_vllm_runtimes(compute_apps), 'unifiedTotalBytes': image_device.get('vram_total'), 'unifiedFreeBytes': image_device.get('vram_free')},
     'nvfp4': {
         'backendRunning': bool(nvfp4_proxy.get('backend_running')),
         'backendPid': nvfp4_proxy.get('backend_pid'),
@@ -219,6 +265,20 @@ function estimateMiB(fraction, totalBytes) {
   const total = asNumber(totalBytes);
   const totalMiB = total === null ? null : total / (1024 * 1024);
   return Number.isFinite(fraction) && totalMiB > 0 ? totalMiB * fraction : null;
+}
+
+function vllmRuntimes(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item && Number.isInteger(item.port) && item.port >= 1 && item.port <= 65535
+      && typeof item.modelId === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(item.modelId)
+      && Number.isFinite(item.usedMiB) && item.usedMiB >= 0)
+    .map((item) => Object.freeze({ port: item.port, modelId: item.modelId, usedMiB: item.usedMiB }));
+}
+
+function runtimeMemoryForPort(runtimes, port) {
+  const matched = runtimes.filter((item) => item.port === port).map((item) => item.usedMiB);
+  return matched.length ? matched.reduce((sum, value) => sum + value, 0) : null;
 }
 
 function trimLogLine(line) {
@@ -325,12 +385,15 @@ export function snapshotFromProbe(probe) {
   const gpu = probe.gpu || {};
   const memory = probe.memory || {};
   const computeApps = Array.isArray(gpu.computeApps) ? gpu.computeApps : [];
+  const observedVllmRuntimes = vllmRuntimes(gpu.vllmRuntimes);
   const unifiedTotalBytes = asNumber(gpu.unifiedTotalBytes);
   const physicalTotalBytes = asNumber(memory.totalBytes);
   const physicalAvailableBytes = asNumber(memory.availableBytes);
-  const nvfp4ObservedMiB = nvfp4.backendRunning ? memoryMiB(computeApps, (app) => app?.processName === 'VLLM::EngineCore') : null;
+  const nvfp4ObservedMiB = runtimeMemoryForPort(observedVllmRuntimes, 8092)
+    ?? (nvfp4.backendRunning ? memoryMiB(computeApps, (app) => app?.processName === 'VLLM::EngineCore') : null);
+  const nvfp4Running = Boolean(nvfp4.backendRunning) || nvfp4ObservedMiB !== null;
   const imageObservedMiB = image.available ? memoryMiB(computeApps, (app) => /python/i.test(app?.processName || '')) : null;
-  const nvfp4EstimateMiB = nvfp4.backendRunning ? null : estimateMiB(asNumber(nvfp4.config?.gpuMemoryUtilization), unifiedTotalBytes);
+  const nvfp4EstimateMiB = nvfp4Running ? null : estimateMiB(asNumber(nvfp4.config?.gpuMemoryUtilization), unifiedTotalBytes);
   const vlmEstimateMiB = vlm.backendRunning ? null : estimateMiB(asNumber(vlm.config?.memFractionStatic), unifiedTotalBytes);
   // Linux MemAvailable is the capacity basis for all client-controlled model
   // actions. A ComfyUI process may report a smaller private pool, but that is
@@ -339,6 +402,7 @@ export function snapshotFromProbe(probe) {
   const freeMiB = physicalAvailableBytes === null ? null : physicalAvailableBytes / (1024 * 1024);
   const reserveMiB = totalMiB ? Math.max(8192, totalMiB * 0.1) : null;
   const allocatableMiB = freeMiB !== null && reserveMiB !== null ? Math.max(0, freeMiB - reserveMiB) : null;
+  const observedModelMemoryMiB = observedVllmRuntimes.reduce((sum, item) => sum + item.usedMiB, 0);
   const coreHealthy = nvfp4.backendRunning && vlm.backendRunning && image.available && probe.compatibilityProxyHealthy;
 
   return {
@@ -350,7 +414,7 @@ export function snapshotFromProbe(probe) {
       detail: coreHealthy ? 'Read-only DGX probes succeeded.' : 'One or more read-only DGX probes are unavailable.',
     },
     services: [
-      { id: 'nvfp4', name: 'NVFP4', status: serviceStatus(nvfp4.backendRunning), port: 8091, residency: nvfp4.backendRunning ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: nvfp4ObservedMiB, estimatedMemoryMiB: nvfp4EstimateMiB, estimateSource: nvfp4EstimateMiB === null ? null : 'configured-reservation', idleForSeconds: asNumber(nvfp4.idleForSeconds), idleThresholdSeconds: asNumber(nvfp4.idleThresholdSeconds), failedProbes: asNumber(nvfp4.failedProbes) },
+      { id: 'nvfp4', name: 'NVFP4', status: serviceStatus(nvfp4Running), port: 8091, residency: nvfp4Running ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: nvfp4ObservedMiB, estimatedMemoryMiB: nvfp4EstimateMiB, estimateSource: nvfp4EstimateMiB === null ? null : 'configured-reservation', idleForSeconds: asNumber(nvfp4.idleForSeconds), idleThresholdSeconds: asNumber(nvfp4.idleThresholdSeconds), failedProbes: asNumber(nvfp4.failedProbes) },
       { id: 'vlm', name: 'VLM', status: serviceStatus(vlm.backendRunning), port: 8003, residency: vlm.backendRunning ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: null, estimatedMemoryMiB: vlmEstimateMiB, estimateSource: vlmEstimateMiB === null ? null : 'configured-reservation', idleForSeconds: asNumber(vlm.idleForSeconds), idleThresholdSeconds: asNumber(vlm.idleThresholdSeconds), failedProbes: asNumber(vlm.failedProbes) },
       { id: 'image', name: 'Image model', status: image.available ? 'running' : 'offline', port: 8188, residency: image.available ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: imageObservedMiB, estimatedMemoryMiB: null, estimateSource: null },
       { id: 'proxy-8093', name: 'API compatibility proxy', status: probe.compatibilityProxyHealthy ? 'running' : 'offline', port: 8093, residency: 'resident', uptimeSeconds: null },
@@ -366,7 +430,8 @@ export function snapshotFromProbe(probe) {
       gpuUtilizationPercent: asNumber(gpu.utilizationPercent),
       gpuPowerWatts: asNumber(gpu.powerWatts),
       gpuTemperatureCelsius: asNumber(gpu.temperatureCelsius),
-      modelMemoryBudget: { source: physicalTotalBytes ? 'linux-memavailable' : 'unavailable', totalMiB, freeMiB, safetyReserveMiB: reserveMiB, allocatableMiB },
+      modelMemoryBudget: { source: physicalTotalBytes ? 'linux-memavailable' : 'unavailable', totalMiB, freeMiB, safetyReserveMiB: reserveMiB, allocatableMiB, observedModelMemoryMiB, observedModelRuntimeCount: observedVllmRuntimes.length },
+      vllmRuntimes: observedVllmRuntimes,
       queueDepth: asNumber(nvfp4.queuedRequests),
     },
     metrics: {

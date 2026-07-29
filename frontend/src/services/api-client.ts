@@ -250,6 +250,8 @@ function mapSystem(payload: unknown): SystemMetrics {
       freeGiB: toGiB(budget.freeMiB),
       safetyReserveGiB: toGiB(budget.safetyReserveMiB),
       allocatableGiB: toGiB(budget.allocatableMiB),
+      observedModelMemoryGiB: toGiB(budget.observedModelMemoryMiB),
+      observedModelRuntimeCount: nullableNumber(budget.observedModelRuntimeCount),
     } : undefined,
   }
 }

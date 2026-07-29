@@ -257,13 +257,14 @@ export default function Overview() {
           <div>
             <p className="eyebrow">资源评估</p>
             <h2>系统资源余量</h2>
-            <p>用于评估当前是否有足够系统资源加载新的模型服务。安全预留会为操作系统、驱动、缓存与短时波动保留空间。</p>
+            <p>用于评估当前是否有足够系统资源加载新的模型服务。安全预留会为操作系统、驱动、缓存与短时波动保留空间；已观测到的模型进程占用会单独显示，不会被误认为“未加载”。</p>
           </div>
           <dl>
             <div><dt>系统可用资源</dt><dd>{memoryLabel(modelMemoryBudget.freeGiB)}</dd></div>
             <div><dt>系统安全预留</dt><dd>{memoryLabel(modelMemoryBudget.safetyReserveGiB)}</dd></div>
             <div><dt>可安全分配资源</dt><dd>{memoryLabel(modelMemoryBudget.allocatableGiB)}</dd></div>
             <div><dt>系统资源总量</dt><dd>{memoryLabel(modelMemoryBudget.totalGiB)}</dd></div>
+            {modelMemoryBudget.observedModelMemoryGiB !== null && <div><dt>已观测模型进程</dt><dd>{memoryLabel(modelMemoryBudget.observedModelMemoryGiB)}{modelMemoryBudget.observedModelRuntimeCount ? ` · ${modelMemoryBudget.observedModelRuntimeCount} 个运行时` : ''}</dd></div>}
           </dl>
         </section>
       )}

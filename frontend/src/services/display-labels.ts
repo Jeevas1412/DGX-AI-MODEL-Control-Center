@@ -3,10 +3,10 @@
  * remote probe names are intentionally kept out of the primary interface.
  */
 const serviceNames: Record<string, string> = {
-  nvfp4: '文本模型服务 1',
-  vlm: '视觉语言模型服务 1',
-  image: '图像生成服务 1',
-  'proxy-8093': 'API 兼容代理 1',
+  nvfp4: '千问3.6 27B NVFP4',
+  vlm: '视觉语言模型服务',
+  image: '图像生成服务',
+  'proxy-8093': 'API 兼容代理',
 }
 
 const serviceKinds: Record<string, string> = {
@@ -16,10 +16,18 @@ const serviceKinds: Record<string, string> = {
   'proxy-8093': '兼容接口服务',
 }
 
-// Service identifiers stay stable for the API while the UI uses a naming rule
-// that remains understandable in another DGX environment.
+// Service identifiers and model IDs stay stable for the API while the UI uses
+// a portable naming rule that remains understandable in another DGX environment.
+export function localizedModelName(value: string) {
+  if (/^hy-mt2-30b-a3b-fp8$/i.test(value)) return '混元 MT2 30B-A3B FP8'
+  if (/^(?:nvidia-)?qwen3\.6-35b-a3b-nvfp4$/i.test(value)) return '千问3.6 35B-A3B NVFP4'
+  if (/^(?:nvidia-)?qwen3\.6-27b-nvfp4$/i.test(value)) return '千问3.6 27B NVFP4'
+  return value
+}
+
 export function localizedServiceName(id: string, fallback: string) {
-  return serviceNames[id] ?? fallback
+  if (serviceNames[id]) return serviceNames[id]
+  return localizedModelName(fallback)
 }
 
 export function localizedServiceKind(id: string) {

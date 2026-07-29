@@ -40,6 +40,9 @@ export interface ModelMemoryBudget {
   freeGiB: number | null;
   safetyReserveGiB: number | null;
   allocatableGiB: number | null;
+  /** GPU-unified memory observed in vLLM processes during the same snapshot. */
+  observedModelMemoryGiB: number | null;
+  observedModelRuntimeCount: number | null;
 }
 
 // 系统指标

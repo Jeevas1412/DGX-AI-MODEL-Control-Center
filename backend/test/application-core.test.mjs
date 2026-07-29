@@ -368,3 +368,30 @@ test('service inventory includes registered generic services without inventing a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('service inventory shows observed runtime memory only when a registered display name exactly matches a read-only vLLM model id', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dgx-managed-service-runtime-'));
+  try {
+    const profileStore = createConnectionProfileStore({ filePath: join(directory, 'profiles.json') });
+    const registry = createModelServiceRegistry({ filePath: join(directory, 'services.json') });
+    const core = createApplicationCore({
+      profileStore,
+      modelServiceRegistry: registry,
+      profileVerifier: async () => ({ connection: 'reachable', capabilities: { monitoring: 'available' }, verificationEvidence }),
+      snapshotProvider: async () => ({ generatedAt: '2026-07-22T00:00:00.000Z', services: [], system: { vllmRuntimes: [{ port: 8096, modelId: 'qwen3.6-35b-a3b-nvfp4', usedMiB: 27657 }] }, metrics: {} }),
+      modelServiceAdapterDiscovery: async () => [{ id: 'adapter-text', version: '1.0.0', integritySha256: `sha256:${'c'.repeat(64)}`, templateId: 'openai-compatible-text', actions: ['warmup', 'restart', 'stop'], healthCheck: { kind: 'service-health' }, resourceBudget: { estimatedMemoryMiB: 4096 } }],
+    });
+    const profile = await core.dispatch({ method: 'POST', path: '/api/setup/profiles', body: { displayName: 'Lab DGX', sshAlias: 'lab-dgx' } });
+    await core.dispatch({ method: 'POST', path: `/api/setup/profiles/${profile.payload.profile.id}/verify`, body: {} });
+    await core.dispatch({ method: 'POST', path: `/api/setup/profiles/${profile.payload.profile.id}/activate`, body: {} });
+    const draft = await registry.addDraft({ catalogEntryId: '123e4567-e89b-12d3-a456-426614174006', templateId: 'openai-compatible-text', displayName: 'nvidia-Qwen3.6-35B-A3B-NVFP4', targetMachineSha256: verificationEvidence.targetMachineSha256 });
+    await registry.markRegistered({ id: draft.id, adapterId: 'adapter-text', adapterVersion: '1.0.0', adapterIntegritySha256: `sha256:${'c'.repeat(64)}`, remoteRegistrationId: '123e4567-e89b-12d3-a456-426614174007' });
+    const item = (await core.dispatch({ method: 'GET', path: '/api/services' })).payload.items.find((value) => value.managedServiceId === draft.id);
+    assert.equal(item.status, 'running');
+    assert.equal(item.residency, 'resident');
+    assert.equal(item.observedMemoryMiB, 27657);
+    assert.equal(item.port, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
