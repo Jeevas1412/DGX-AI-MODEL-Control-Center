@@ -1,0 +1,64 @@
+{
+  "name": "dgx-ai-control-center-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "author": "DGX AI Control Center contributors",
+  "type": "module",
+  "description": "Desktop runtime for DGX AI Control Center.",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "check": "node --check src/main.mjs && node --check src/preload.cjs && node --check src/preferences.mjs && node --check src/api-bridge.mjs && node --check src/security.mjs && node --check src/environment.mjs && node --check src/remote-desktop-credential-vault.mjs",
+    "build:frontend": "npm --prefix ../frontend run build",
+    "generate:icon": "node scripts/generate-windows-icon.mjs",
+    "pack": "npm run build:frontend && npm run generate:icon && electron-builder --dir --publish never",
+    "dist:win": "npm run build:frontend && npm run generate:icon && electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "@electron/fuses": "1.8.0",
+    "electron": "43.1.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.dgx.aicontrolcenter.production",
+    "productName": "DGX AI Control Center",
+    "icon": "build/icon.ico",
+    "asar": true,
+    "afterPack": "scripts/after-pack-fuses.mjs",
+    "directories": {
+      "output": "../artifacts/windows-installer"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../backend/src",
+        "to": "backend/src",
+        "filter": ["**/*"]
+      }
+    ],
+    "extraResources": [
+      { "from": "../scripts/recover-operation-ledger-lock.ps1", "to": "tools/recover-operation-ledger-lock.ps1" }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "perMachine": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

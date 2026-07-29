@@ -1,0 +1,111 @@
+name: github-release-candidate
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  package-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v22
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            desktop/package-lock.json
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend
+          npm ci --prefix desktop
+      - name: Verify version contract
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw -Encoding utf8 VERSION).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw 'VERSION is not valid SemVer.' }
+          $packageVersions = @(
+            (Get-Content -Raw -Encoding utf8 package.json | ConvertFrom-Json).version,
+            (Get-Content -Raw -Encoding utf8 backend/package.json | ConvertFrom-Json).version,
+            (Get-Content -Raw -Encoding utf8 frontend/package.json | ConvertFrom-Json).version,
+            (Get-Content -Raw -Encoding utf8 desktop/package.json | ConvertFrom-Json).version
+          )
+          if ($packageVersions | Where-Object { $_ -ne $version }) { throw 'Package versions do not match VERSION.' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Git tag must equal vVERSION.' }
+      - name: Verify public tree and quality gate
+        shell: pwsh
+        run: |
+          ./scripts/verify-public-tree.ps1
+          npm.cmd run check
+          npm audit --prefix backend --omit=dev
+          npm audit --prefix frontend --omit=dev
+          npm audit --prefix desktop --omit=dev
+      - name: Build Windows installer once
+        working-directory: desktop
+        shell: pwsh
+        run: npm.cmd run dist:win
+      - name: Create same-build evidence
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw -Encoding utf8 VERSION).Trim()
+          $output = 'artifacts/windows-installer'
+          $installers = @(Get-ChildItem -LiteralPath $output -File -Filter 'DGX AI Control Center Setup *.exe' | Where-Object { $_.Name -notlike '*.__uninstaller.exe' })
+          if ($installers.Count -ne 1) { throw "Expected exactly one primary installer, found $($installers.Count)." }
+          $installer = $installers[0]
+          $blockmap = "$($installer.FullName).blockmap"
+          if (-not (Test-Path -LiteralPath $blockmap)) { throw 'Installer blockmap was not produced.' }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash
+          "$hash *$($installer.Name)" | Set-Content -Encoding ascii "$output/SHA256SUMS.txt"
+          npm --prefix backend sbom --omit=dev --sbom-format cyclonedx | Set-Content -Encoding utf8 "$output/backend-$version.cdx.json"
+          npm --prefix frontend sbom --omit=dev --sbom-format cyclonedx | Set-Content -Encoding utf8 "$output/frontend-$version.cdx.json"
+          npm --prefix desktop sbom --omit=dev --sbom-format cyclonedx | Set-Content -Encoding utf8 "$output/desktop-$version.cdx.json"
+          [ordered]@{
+            schemaVersion = 1
+            version = $version
+            artifact = $installer.Name
+            sha256 = $hash
+            sourceCommit = '${{ github.sha }}'
+            builtBy = 'GitHub Actions'
+            runId = '${{ github.run_id }}'
+            status = 'candidate'
+            codeSigning = 'intentionally-unsigned-github-only'
+          } | ConvertTo-Json | Set-Content -Encoding utf8 "$output/release-manifest.json"
+          Copy-Item -LiteralPath "release/RELEASE_NOTES_$version.md" -Destination "$output/RELEASE_NOTES_$version.md"
+      - name: Publish build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: dgx-ai-control-center-${{ github.ref_name }}-windows
+          if-no-files-found: error
+          path: |
+            artifacts/windows-installer/DGX AI Control Center Setup *.exe
+            artifacts/windows-installer/DGX AI Control Center Setup *.exe.blockmap
+            artifacts/windows-installer/SHA256SUMS.txt
+            artifacts/windows-installer/release-manifest.json
+            artifacts/windows-installer/*.cdx.json
+            artifacts/windows-installer/RELEASE_NOTES_*.md
+      - name: Create draft prerelease from the same build
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -Raw -Encoding utf8 VERSION).Trim()
+          $output = 'artifacts/windows-installer'
+          $installer = @(Get-ChildItem -LiteralPath $output -File -Filter 'DGX AI Control Center Setup *.exe' | Where-Object { $_.Name -notlike '*.__uninstaller.exe' })
+          if ($installer.Count -ne 1) { throw 'Expected one primary installer for the draft release.' }
+          $assets = @(
+            $installer[0].FullName,
+            "$($installer[0].FullName).blockmap",
+            (Join-Path $output 'SHA256SUMS.txt'),
+            (Join-Path $output 'release-manifest.json')
+          ) + @(Get-ChildItem -LiteralPath $output -File -Filter '*.cdx.json' | ForEach-Object FullName)
+          gh release create "${{ github.ref_name }}" --draft --prerelease --title "DGX AI Control Center ${{ github.ref_name }}" --notes-file "$output/RELEASE_NOTES_$version.md" @assets

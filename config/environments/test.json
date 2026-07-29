@@ -1,0 +1,6 @@
+{
+  "environment": "test",
+  "userDataNamespace": "DGX AI Control Center-test",
+  "remoteExposure": "disabled",
+  "promotion": "release-candidate-validation"
+}

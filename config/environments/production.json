@@ -1,0 +1,6 @@
+{
+  "environment": "production",
+  "userDataNamespace": "DGX AI Control Center-production",
+  "remoteExposure": "manual-and-protected-only",
+  "promotion": "manual-approval-required"
+}

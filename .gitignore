@@ -1,0 +1,53 @@
+# Credentials and environment-specific configuration
+secrets/
+*.token
+*.pem
+*.key
+*.pfx
+.env
+.env.*
+!.env.example
+
+# Dependencies and builds
+**/node_modules/
+**/dist/
+**/.vite/
+**/coverage/
+desktop/build/
+frontend/*.timestamp-*.mjs
+
+# Local runtime data, diagnostics and operation evidence
+artifacts/
+backend/data/
+outputs/
+semifinished/
+downloads/
+.workbuddy/
+*.log
+*.pid
+*.partial
+*.tmp
+
+# Operator evidence is archived locally and must never enter a public repository.
+02_实时任务状态看板.md
+agent_tasks/
+docs/2026-07-19_第二十五轮_本机Live前端联调准备日志.md
+docs/2026-07-20_第七十七轮_WB15_Codex接管修复与验收.md
+docs/2026-07-20_第四十四轮_受保护局域网访问实施与安全门槛.md
+docs/protected-lan-access-runbook.md
+docs/2026-07-21_现有审查意见严格复审.md
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.code-workspace
+docs/2026-07-21_1.0.0目标环境现状审计与晋级路线.md
+docs/2026-07-21_第一百零二轮_测试环境归档与上线空环境构建.md
+docs/2026-07-21_第一百轮_Windows安装包构建与本机安装验收.md
+
+# Historical operator logs and collaboration records are retained locally in
+# the test archive; the public repository contains only maintained product docs.
+docs/2026-*.md
+02_实时任务状态看板.md
+01_WorkBuddy与Codex职责分工.md
+README_AGENT入口.md

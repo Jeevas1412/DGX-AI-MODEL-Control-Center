@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0-rc.1",
+  "channel": "github-release-candidate",
+  "artifact": "artifacts/windows-installer/DGX AI Control Center Setup 1.0.0-rc.1.exe",
+  "sha256": "1EC12907FD3E4EE7AF9A5BBE06FD73AEE520DA1102335D5F318EC0BD93270FC0",
+  "builtAt": "2026-07-21T14:44:47+08:00",
+  "promotionState": "candidate",
+  "installationState": "not-installed",
+  "distribution": "GitHub only",
+  "codeSigning": "intentionally-unsigned-github-only",
+  "sbom": [
+    "release/sbom/backend-1.0.0-rc.1.cdx.json",
+    "release/sbom/frontend-1.0.0-rc.1.cdx.json",
+    "release/sbom/desktop-1.0.0-rc.1.cdx.json"
+  ],
+  "verification": {
+    "backendTests": "85/85 passed",
+    "frontendTests": "85/85 passed; lint and production build passed",
+    "desktopTests": "17/17 passed; syntax check passed",
+    "dependencyAudit": "0 known vulnerabilities in full frontend and all production dependency trees",
+    "publicTree": "pending final scan",
+    "cleanInstall": "pending"
+  }
+}

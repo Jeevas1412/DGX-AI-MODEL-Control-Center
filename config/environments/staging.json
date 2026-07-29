@@ -1,0 +1,6 @@
+{
+  "environment": "staging",
+  "userDataNamespace": "DGX AI Control Center-staging",
+  "remoteExposure": "disabled-by-default",
+  "promotion": "manual-acceptance"
+}

@@ -1,0 +1,15 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:cfe81483-e870-4c34-b05c-b3b21a043e15",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-07-21T10:49:30.000Z",
+    "component": { "type": "application", "name": "DGX AI Control Center", "version": "1.0.0-rc.10", "licenses": [{ "license": { "id": "Apache-2.0" } }] }
+  },
+  "components": [
+    { "type": "application", "name": "dgx-ai-control-center-backend", "version": "1.0.0-rc.10" },
+    { "type": "application", "name": "dgx-ai-control-center", "version": "1.0.0-rc.10" },
+    { "type": "application", "name": "dgx-ai-control-center-desktop", "version": "1.0.0-rc.10" }
+  ]
+}

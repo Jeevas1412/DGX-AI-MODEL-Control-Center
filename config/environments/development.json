@@ -1,0 +1,6 @@
+{
+  "environment": "development",
+  "userDataNamespace": "DGX AI Control Center-development",
+  "remoteExposure": "disabled",
+  "promotion": "local-and-ci-tests-only"
+}

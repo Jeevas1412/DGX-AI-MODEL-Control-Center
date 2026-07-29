@@ -1,0 +1,16 @@
+{
+  "name": "dgx-ai-control-center-backend",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "author": "DGX AI Control Center contributors",
+  "private": true,
+  "type": "module",
+  "description": "Read-only monitoring API for the DGX AI Control Center.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test"
+  }
+}

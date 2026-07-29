@@ -1,0 +1,15 @@
+{
+  "name": "dgx-ai-control-center-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "author": "DGX AI Control Center contributors",
+  "type": "module",
+  "description": "Local build orchestration for DGX AI Control Center.",
+  "scripts": {
+    "test": "npm --prefix backend test && npm --prefix frontend test && npm --prefix desktop test",
+    "lint": "npm --prefix frontend run lint",
+    "build": "npm --prefix frontend run build",
+    "check": "npm --prefix backend test && npm --prefix frontend run lint && npm --prefix frontend run build && npm --prefix desktop test && npm --prefix desktop run check"
+  }
+}

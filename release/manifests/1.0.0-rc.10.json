@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0-rc.10",
+  "builtAtUtc": "2026-07-21T10:49:30.000Z",
+  "artifact": "artifacts/windows-installer/DGX AI Control Center Setup 1.0.0-rc.10.exe",
+  "artifactSha256": "A63AB7F39A4EA0D377273D4A68B1C76121387A0C792119821B48784465569ECF",
+  "artifactBytes": 99598745,
+  "source": { "baseCommit": "69e9213cf623ac269a58c8c5c1d3e91c814d780f", "sourceTreeState": "working-tree-candidate; commit/tag freeze remains required before public release" },
+  "sbom": "release/sbom/1.0.0-rc.10.cdx.json",
+  "releaseNotes": "release/RELEASE_NOTES_1.0.0-rc.10.md",
+  "verification": { "backend": "94/94 passed", "desktop": "20/20 passed; syntax check passed", "frontend": "85/85 passed; lint and production build passed", "packageContent": "Verified recovery tool under resources/tools" },
+  "signing": "Not signed by project policy; signing is deferred."
+}

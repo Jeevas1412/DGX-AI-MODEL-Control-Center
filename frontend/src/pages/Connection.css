@@ -1,0 +1,28 @@
+/* ── Connection Page ── */
+.connection-page { max-width: 960px; margin: 0 auto; display: grid; gap: var(--spacing-lg); }
+.connection-header h2 { font-family: var(--font-mono); font-weight: 700; margin: var(--spacing-xs) 0; }
+.connection-profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--spacing-sm); }
+.connection-profile-card { padding: var(--spacing-md); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--border-radius); display: grid; gap: var(--spacing-xs); }
+.connection-profile-card.active { border-color: var(--success); box-shadow: inset 3px 0 0 var(--success); }
+.connection-profile-card strong { font-size: 0.8rem; }
+.connection-profile-card span.mono { font-family: var(--font-mono); font-size: 0.65rem; color: var(--accent-secondary); }
+.connection-profile-card small { font-size: 0.6rem; color: var(--text-muted); }
+.connection-profile-card .connection-verified { color: var(--success); }
+.connection-profile-card .connection-unverified { color: var(--warning); }
+.connection-cap-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--spacing-sm); }
+.connection-cap-item { display: flex; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--border-radius); align-items: center; }
+.connection-cap-item.cap-ok { border-left: 3px solid var(--success); }
+.connection-cap-item.cap-warn { border-left: 3px solid var(--warning); }
+.connection-cap-icon { font-size: 1rem; flex-shrink: 0; }
+.cap-ok .connection-cap-icon { color: var(--success); }
+.cap-warn .connection-cap-icon { color: var(--warning); }
+.connection-cap-item strong { font-size: 0.73rem; display: block; }
+.connection-cap-item small { font-size: 0.6rem; color: var(--text-muted); }
+.connection-footer { display: flex; gap: var(--spacing-sm); }
+
+/* ── Shared Page State ── */
+.page-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-sm); padding: var(--spacing-2xl) var(--spacing-lg); text-align: center; min-height: 200px; }
+.page-state-icon { font-size: 2rem; }
+.page-state h3 { font-family: var(--font-mono); font-weight: 600; font-size: 1rem; margin: 0; }
+
+@media (max-width: 620px) { .connection-cap-grid { grid-template-columns: 1fr; } }

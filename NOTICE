@@ -1,0 +1,7 @@
+DGX AI Control Center
+Copyright 2026 DGX AI Control Center contributors
+
+This product source is distributed under the Apache License, Version 2.0.
+Third-party dependency licenses are recorded in the CycloneDX SBOM files under
+release/sbom/ and will be consolidated in THIRD_PARTY_NOTICES.md before the
+final 1.0.0 GitHub release.

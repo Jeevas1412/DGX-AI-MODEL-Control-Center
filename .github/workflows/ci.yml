@@ -1,0 +1,40 @@
+name: validation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v22
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            desktop/package-lock.json
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend
+          npm ci --prefix desktop
+      - name: Verify public tree boundary
+        shell: pwsh
+        run: ./scripts/verify-public-tree.ps1
+      - name: Run complete cross-layer quality gate
+        shell: pwsh
+        run: npm.cmd run check
+      - name: Audit production dependencies
+        shell: pwsh
+        run: |
+          npm audit --prefix backend --omit=dev
+          npm audit --prefix frontend --omit=dev
+          npm audit --prefix desktop --omit=dev

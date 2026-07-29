@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "product": "DGX AI Control Center",
+  "versioning": "semver",
+  "artifactPolicy": "build-once-deploy-many",
+  "secretsPolicy": "external-only",
+  "remoteControlDefault": "disabled"
+}
