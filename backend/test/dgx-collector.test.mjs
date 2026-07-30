@@ -56,6 +56,33 @@ test('keeps an observed vLLM runtime separate from configured capacity and uses 
   assert.equal(snapshot.system.vllmRuntimes[1].port, 8096);
 });
 
+test('uses the verified 27B measured profile instead of presenting its allocator ceiling as expected use', () => {
+  const snapshot = snapshotFromProbe({
+    ...probe,
+    nvfp4: { ...probe.nvfp4, backendRunning: false, config: { ...probe.nvfp4.config, maxModelLen: 131072, gpuMemoryUtilization: 0.62, maxNumSeqs: 1 } },
+    gpu: { ...probe.gpu, modelRuntimes: probe.gpu.modelRuntimes.filter((item) => item.port !== 8092) },
+  });
+  const nvfp4 = snapshot.services.find((service) => service.id === 'nvfp4');
+  assert.equal(nvfp4.observedMemoryMiB, null);
+  assert.equal(nvfp4.estimatedMemoryMiB, 49152);
+  assert.equal(nvfp4.estimateSource, 'measured-profile');
+  assert.equal(nvfp4.estimatedMemoryBaselineMiB, 45089);
+  assert.equal(nvfp4.startupBufferMiB, 4063);
+  assert.equal(nvfp4.configurationMemoryLimitMiB, 81264.64);
+});
+
+test('falls back to the configured ceiling if the verified 27B launcher shape changes', () => {
+  const snapshot = snapshotFromProbe({
+    ...probe,
+    nvfp4: { ...probe.nvfp4, backendRunning: false, config: { ...probe.nvfp4.config, maxModelLen: 131072, gpuMemoryUtilization: 0.62, maxNumSeqs: 2 } },
+    gpu: { ...probe.gpu, modelRuntimes: probe.gpu.modelRuntimes.filter((item) => item.port !== 8092) },
+  });
+  const nvfp4 = snapshot.services.find((service) => service.id === 'nvfp4');
+  assert.equal(nvfp4.estimatedMemoryMiB, 81264.64);
+  assert.equal(nvfp4.estimateSource, 'configured-reservation');
+  assert.equal(nvfp4.estimatedMemoryBaselineMiB, null);
+});
+
 test('keeps a vLLM OpenAI API-server runtime visible when it uses the non-vllm-serve entrypoint', () => {
   const snapshot = snapshotFromProbe({
     ...probe,

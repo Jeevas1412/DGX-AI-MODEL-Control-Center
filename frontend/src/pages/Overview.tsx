@@ -38,7 +38,10 @@ function estimateLabel(service: ServiceInfo) {
 
 function estimateDetail(service: ServiceInfo) {
   if (service.estimateSource !== 'measured-profile' || service.estimatedMemoryBaselineGiB === null || service.estimatedMemoryBaselineGiB === undefined || service.startupBufferGiB === null || service.startupBufferGiB === undefined) return null
-  return `实测稳定占用 ${memoryLabel(service.estimatedMemoryBaselineGiB)} + 预热缓冲 ${memoryLabel(service.startupBufferGiB)} = 启动预算 ${memoryLabel(service.estimatedMemoryGiB)}。该预算仅适用于当前已验证的固定启动配置。`
+  const configuredLimit = service.configurationMemoryLimitGiB === null || service.configurationMemoryLimitGiB === undefined
+    ? ''
+    : ` 启动参数上限为 ${memoryLabel(service.configurationMemoryLimitGiB)}，它只是 vLLM 可分配上限，不是实际或预计进程占用。`
+  return `实测稳定占用 ${memoryLabel(service.estimatedMemoryBaselineGiB)} + 预热缓冲 ${memoryLabel(service.startupBufferGiB)} = 启动预算 ${memoryLabel(service.estimatedMemoryGiB)}。该预算仅适用于当前已验证的固定启动配置。${configuredLimit}`
 }
 
 const statusText: Record<ServiceStatus, string> = {

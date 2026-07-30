@@ -31,6 +31,8 @@ export interface ServiceInfo {
   estimatedMemoryBaselineGiB?: number | null;
   /** Additional bounded allocation retained for model preheat, if available. */
   startupBufferGiB?: number | null;
+  /** Launcher allocator ceiling. It is diagnostic only and not historic process use. */
+  configurationMemoryLimitGiB?: number | null;
   /** Built-in controls and registered adapter controls intentionally use different flows. */
   control?: 'local' | 'managed' | 'none';
   managedServiceId?: string;

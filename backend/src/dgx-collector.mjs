@@ -279,6 +279,23 @@ function estimateMiB(fraction, totalBytes) {
   return Number.isFinite(fraction) && totalMiB > 0 ? totalMiB * fraction : null;
 }
 
+// This profile is deliberately narrow: it represents the verified local 27B
+// launcher only, not a generic rule for all NVFP4 models.  The launcher uses
+// a 131072-token context and its 0.62 allocator ceiling is 75.4 GiB on this
+// DGX, but observed steady-state residency was about 44.0 GiB.  Retain a 4.0
+// GiB cold-start buffer for admission while exposing the allocator ceiling
+// separately so it is never presented as historic process use.
+const NVFP4_27B_MEASURED_PROFILE = Object.freeze({
+  observedMemoryMiB: 45089,
+  startupBufferMiB: 4063,
+  estimatedMemoryMiB: 49152,
+});
+
+function nvfp4MeasuredProfile(config) {
+  if (config?.maxModelLen !== 131072 || config?.gpuMemoryUtilization !== 0.62 || config?.maxNumSeqs !== 1 || config?.maxNumBatchedTokens !== 16384 || config?.kvCacheDtype !== 'fp8' || config?.prefixCaching !== true) return null;
+  return NVFP4_27B_MEASURED_PROFILE;
+}
+
 function modelRuntimes(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -408,7 +425,9 @@ export function snapshotFromProbe(probe) {
   const vlmObservedMiB = runtimeMemoryForPort(observedModelRuntimes, 8005);
   const vlmRunning = Boolean(vlm.backendRunning) || vlmObservedMiB !== null;
   const imageObservedMiB = image.available ? runtimeMemoryForPort(observedModelRuntimes, 8188) : null;
-  const nvfp4EstimateMiB = nvfp4Running ? null : estimateMiB(asNumber(nvfp4.config?.gpuMemoryUtilization), unifiedTotalBytes);
+  const nvfp4ConfiguredLimitMiB = estimateMiB(asNumber(nvfp4.config?.gpuMemoryUtilization), unifiedTotalBytes);
+  const nvfp4Profile = nvfp4MeasuredProfile(nvfp4.config);
+  const nvfp4EstimateMiB = nvfp4Running ? null : (nvfp4Profile?.estimatedMemoryMiB ?? nvfp4ConfiguredLimitMiB);
   const vlmEstimateMiB = vlmRunning ? null : estimateMiB(asNumber(vlm.config?.memFractionStatic), unifiedTotalBytes);
   // Linux MemAvailable is the capacity basis for all client-controlled model
   // actions. A ComfyUI process may report a smaller private pool, but that is
@@ -431,7 +450,7 @@ export function snapshotFromProbe(probe) {
       detail: coreHealthy ? 'Read-only DGX probes succeeded.' : 'One or more read-only DGX probes are unavailable.',
     },
     services: [
-      { id: 'nvfp4', name: 'NVFP4', status: serviceStatus(nvfp4Running), port: 8091, residency: nvfp4Running ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: nvfp4ObservedMiB, estimatedMemoryMiB: nvfp4EstimateMiB, estimateSource: nvfp4EstimateMiB === null ? null : 'configured-reservation', idleForSeconds: asNumber(nvfp4.idleForSeconds), idleThresholdSeconds: asNumber(nvfp4.idleThresholdSeconds), failedProbes: asNumber(nvfp4.failedProbes) },
+      { id: 'nvfp4', name: 'NVFP4', status: serviceStatus(nvfp4Running), port: 8091, residency: nvfp4Running ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: nvfp4ObservedMiB, estimatedMemoryMiB: nvfp4EstimateMiB, estimateSource: nvfp4EstimateMiB === null ? null : (nvfp4Profile ? 'measured-profile' : 'configured-reservation'), estimatedMemoryBaselineMiB: nvfp4Profile?.observedMemoryMiB ?? null, startupBufferMiB: nvfp4Profile?.startupBufferMiB ?? null, configurationMemoryLimitMiB: nvfp4ConfiguredLimitMiB, idleForSeconds: asNumber(nvfp4.idleForSeconds), idleThresholdSeconds: asNumber(nvfp4.idleThresholdSeconds), failedProbes: asNumber(nvfp4.failedProbes) },
       { id: 'vlm', name: 'VLM', status: serviceStatus(vlmRunning), port: 8003, residency: vlmRunning ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: vlmObservedMiB, estimatedMemoryMiB: vlmEstimateMiB, estimateSource: vlmEstimateMiB === null ? null : 'configured-reservation', idleForSeconds: asNumber(vlm.idleForSeconds), idleThresholdSeconds: asNumber(vlm.idleThresholdSeconds), failedProbes: asNumber(vlm.failedProbes) },
       { id: 'image', name: 'Image model', status: image.available ? 'running' : 'offline', port: 8188, residency: image.available ? 'resident' : 'unloaded', uptimeSeconds: null, observedMemoryMiB: imageObservedMiB, estimatedMemoryMiB: null, estimateSource: null },
       { id: 'proxy-8093', name: 'API compatibility proxy', status: probe.compatibilityProxyHealthy ? 'running' : 'offline', port: 8093, residency: 'resident', uptimeSeconds: null },

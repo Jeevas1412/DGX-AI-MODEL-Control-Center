@@ -48,7 +48,7 @@ function assertCapacityPrecondition({ snapshot, service, action }) {
   const allocatableMiB = asFiniteNumber(snapshot?.system?.modelMemoryBudget?.allocatableMiB);
   if (estimatedMiB === null || allocatableMiB === null || estimatedMiB <= allocatableMiB) return;
   const deficitMiB = estimatedMiB - allocatableMiB;
-  throw new Error(`内存安全前检已阻止 ${service.displayName}：配置预留 ${(estimatedMiB / 1024).toFixed(1)} GiB，超过可安全分配 ${(allocatableMiB / 1024).toFixed(1)} GiB，预计缺口 ${(deficitMiB / 1024).toFixed(1)} GiB。`);
+  throw new Error(`内存安全前检已阻止 ${service.displayName}：启动预算 ${(estimatedMiB / 1024).toFixed(1)} GiB，超过可安全分配 ${(allocatableMiB / 1024).toFixed(1)} GiB，预计缺口 ${(deficitMiB / 1024).toFixed(1)} GiB。`);
 }
 
 /**

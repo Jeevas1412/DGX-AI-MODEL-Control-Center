@@ -219,6 +219,7 @@ function mapServices(payload: unknown): ServiceInfo[] {
       estimateSource: raw.estimateSource === 'configured-reservation' || raw.estimateSource === 'adapter-reservation' || raw.estimateSource === 'measured-profile' ? raw.estimateSource : null,
       estimatedMemoryBaselineGiB: nullableNumber(raw.estimatedMemoryBaselineMiB) === null ? null : Math.round((nullableNumber(raw.estimatedMemoryBaselineMiB) as number / 1024) * 10) / 10,
       startupBufferGiB: nullableNumber(raw.startupBufferMiB) === null ? null : Math.round((nullableNumber(raw.startupBufferMiB) as number / 1024) * 10) / 10,
+      configurationMemoryLimitGiB: nullableNumber(raw.configurationMemoryLimitMiB) === null ? null : Math.round((nullableNumber(raw.configurationMemoryLimitMiB) as number / 1024) * 10) / 10,
       control: raw.control === 'managed' ? 'managed' : raw.control === 'local' ? 'local' : 'none',
       managedServiceId: text(raw.managedServiceId) || undefined,
       managedActions: Array.isArray(raw.managedActions) ? raw.managedActions.filter((action): action is LocalControlAction => action === 'warmup' || action === 'restart' || action === 'stop') : [],
