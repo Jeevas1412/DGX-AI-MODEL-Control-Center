@@ -19,7 +19,7 @@ function localModelInventoryScript(roots) {
 set -euo pipefail
 for root in ${values}; do
   [ -d "$root" ] || continue
-  find "$root" -mindepth 1 -maxdepth 1 -type d -printf '%p\\n' 2>/dev/null || true
+  find "$root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%p\\n' 2>/dev/null || true
 done | head -n 200
 `;
 }
