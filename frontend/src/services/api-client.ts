@@ -1,4 +1,4 @@
-import type { ActivateProfileResponse, BenchmarkResult, CreateProfileRequest, CreateProfileResponse, LogEntry, ModelMetrics, ModelType, Nvfp4StartupConfig, RequestRecord, ServiceInfo, ServiceStatus, SetupCapabilities, SetupProfilesDoc, SystemMetrics, VerifyProfileResponse } from '../types'
+import type { ActivateProfileResponse, BenchmarkResult, CreateProfileRequest, CreateProfileResponse, LogEntry, ModelMetrics, ModelType, NodeOverview, NodeSnapshot, Nvfp4StartupConfig, RequestRecord, ServiceInfo, ServiceStatus, SetupCapabilities, SetupProfilesDoc, SystemMetrics, VerifyProfileResponse } from '../types'
 import { mockLogs, mockModelMetrics, mockRequests, mockServices, mockSystemMetrics } from '../mocks/data'
 
 export type ApiMode = 'mock' | 'live'
@@ -16,7 +16,7 @@ export class ApiRequestError extends Error {
     this.requestId = requestId
   }
 }
-export type ApiResource = 'health' | 'connectionStatus' | 'remoteDesktopStatus' | 'hardwareSummary' | 'services' | 'system' | 'nvfp4Metrics' | 'vlmMetrics' | 'nvfp4Config' | 'requests' | 'logs' | 'benchmarks'
+export type ApiResource = 'health' | 'connectionStatus' | 'remoteDesktopStatus' | 'hardwareSummary' | 'services' | 'system' | 'nvfp4Metrics' | 'vlmMetrics' | 'nvfp4Config' | 'requests' | 'logs' | 'benchmarks' | 'nodes'
 
 export interface ReadResult<T> {
   data: T
@@ -362,6 +362,137 @@ function mapHardwareSummary(payload: unknown): HardwareSummary {
   }
 }
 
+function mapNodeStatus(value: unknown): NodeSnapshot['status'] {
+  return ['healthy', 'degraded', 'unreachable', 'unknown'].includes(text(value)) ? text(value) as NodeSnapshot['status'] : 'unknown'
+}
+
+function mapNodeGpu(raw: BackendRecord | null): NodeSnapshot['gpu'] {
+  if (raw === null) return null
+  return {
+    gpuName: typeof raw.gpuName === 'string' ? raw.gpuName : null,
+    gpuDriverVersion: typeof raw.gpuDriverVersion === 'string' ? raw.gpuDriverVersion : null,
+    gpuMemoryTotalMiB: nullableNumber(raw.gpuMemoryTotalMiB),
+    gpuMemoryUsedMiB: nullableNumber(raw.gpuMemoryUsedMiB),
+    gpuUtilizationPercent: nullableNumber(raw.gpuUtilizationPercent),
+    gpuPowerWatts: nullableNumber(raw.gpuPowerWatts),
+    gpuTemperatureCelsius: nullableNumber(raw.gpuTemperatureCelsius),
+  }
+}
+
+function mapNodeServices(value: unknown): NodeSnapshot['services'] {
+  const items: unknown[] = Array.isArray(value) ? value : []
+  return items.map((item, index) => {
+    const raw = item as BackendRecord
+    const id = text(raw.id, `service-${index}`)
+    const residency = raw.residency
+    return {
+      id,
+      name: text(raw.name, id),
+      status: text(raw.status, 'unknown'),
+      port: nullableNumber(raw.port),
+      residency: residency === 'resident' || residency === 'on-demand' || residency === 'unloaded' ? residency : null,
+    }
+  })
+}
+
+function mapNodeInterconnect(value: unknown): NodeSnapshot['interconnect'] {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as BackendRecord
+  const counters = raw.counters !== null && typeof raw.counters === 'object' && !Array.isArray(raw.counters) ? raw.counters as BackendRecord : {}
+  const peer = raw.peer !== null && typeof raw.peer === 'object' && !Array.isArray(raw.peer) ? raw.peer as BackendRecord : null
+  return {
+    linkState: typeof raw.linkState === 'string' ? raw.linkState : null,
+    linkAddress: typeof raw.linkAddress === 'string' ? raw.linkAddress : null,
+    mtu: nullableNumber(raw.mtu),
+    rdmaUp: raw.rdmaUp === true,
+    rdmaDevices: Array.isArray(raw.rdmaDevices) ? raw.rdmaDevices.map((item) => {
+      const device = item as BackendRecord
+      return { device: text(device.device, 'unknown'), state: text(device.state, 'unknown') }
+    }) : [],
+    roceV2GidIndex3: typeof raw.roceV2GidIndex3 === 'string' ? raw.roceV2GidIndex3 : null,
+    counters: {
+      rxBytes: nullableNumber(counters.rxBytes),
+      txBytes: nullableNumber(counters.txBytes),
+      rxErrors: nullableNumber(counters.rxErrors),
+      txErrors: nullableNumber(counters.txErrors),
+      rxDropped: nullableNumber(counters.rxDropped),
+      txDropped: nullableNumber(counters.txDropped),
+    },
+    peer: peer === null ? null : { peerAddress: text(peer.peerAddress, ''), reachable: peer.reachable === true },
+    peerReachable: raw.peerReachable === true,
+  }
+}
+
+function mapNodeVllm(value: unknown): NodeSnapshot['vllm'] {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as BackendRecord
+  return {
+    runtimes: Array.isArray(raw.runtimes) ? raw.runtimes.map((item) => {
+      const runtime = item as BackendRecord
+      return { engine: text(runtime.engine, 'vllm'), port: number(runtime.port), modelId: text(runtime.modelId, ''), usedMiB: number(runtime.usedMiB) }
+    }) : [],
+    apiReadyPorts: Array.isArray(raw.apiReadyPorts) ? raw.apiReadyPorts.map((item) => number(item)) : [],
+    apiReadiness: Array.isArray(raw.apiReadiness) ? raw.apiReadiness.map((item) => {
+      const entry = item as BackendRecord
+      return { port: number(entry.port), healthy: entry.healthy === true, modelIds: Array.isArray(entry.modelIds) ? entry.modelIds.filter((id): id is string => typeof id === 'string') : [] }
+    }) : [],
+  }
+}
+
+function mapNodeSnapshot(raw: BackendRecord): NodeSnapshot {
+  const system = raw.system !== null && typeof raw.system === 'object' && !Array.isArray(raw.system) ? raw.system as BackendRecord : null
+  return {
+    profileId: text(raw.profileId, 'unknown'),
+    sshAlias: text(raw.sshAlias, 'unknown'),
+    displayName: text(raw.displayName, text(raw.sshAlias, 'unknown')),
+    hostname: typeof raw.hostname === 'string' ? raw.hostname : null,
+    reachable: raw.reachable === true,
+    status: mapNodeStatus(raw.status),
+    collectedAt: text(raw.collectedAt, new Date(0).toISOString()),
+    latencyMs: nullableNumber(raw.latencyMs),
+    gpu: mapNodeGpu(raw.gpu !== null && typeof raw.gpu === 'object' && !Array.isArray(raw.gpu) ? raw.gpu as BackendRecord : null),
+    system: system === null ? null : {
+      hostname: typeof system.hostname === 'string' ? system.hostname : null,
+      gpuName: typeof system.gpuName === 'string' ? system.gpuName : null,
+      gpuDriverVersion: typeof system.gpuDriverVersion === 'string' ? system.gpuDriverVersion : null,
+      gpuMemoryTotalMiB: nullableNumber(system.gpuMemoryTotalMiB),
+      gpuMemoryUsedMiB: nullableNumber(system.gpuMemoryUsedMiB),
+      gpuUtilizationPercent: nullableNumber(system.gpuUtilizationPercent),
+      gpuPowerWatts: nullableNumber(system.gpuPowerWatts),
+      gpuTemperatureCelsius: nullableNumber(system.gpuTemperatureCelsius),
+      memoryTotalBytes: nullableNumber(system.memoryTotalBytes),
+      memoryAvailableBytes: nullableNumber(system.memoryAvailableBytes),
+    },
+    services: mapNodeServices(raw.services),
+    interconnect: mapNodeInterconnect(raw.interconnect),
+    vllm: mapNodeVllm(raw.vllm),
+    errors: Array.isArray(raw.errors) ? raw.errors.map((item, index) => {
+      const error = item as BackendRecord
+      return { kind: typeof error.kind === 'string' ? error.kind : null, message: text(error.message, `节点错误 #${index + 1}`) }
+    }) : [],
+  }
+}
+
+function mapNodeOverview(payload: unknown): NodeOverview {
+  const raw = payload as BackendRecord
+  const summary = raw.summary !== null && typeof raw.summary === 'object' && !Array.isArray(raw.summary) ? raw.summary as BackendRecord : {}
+  return {
+    generatedAt: text(raw.generatedAt, new Date(0).toISOString()),
+    summary: {
+      configured: number(summary.configured),
+      reachable: number(summary.reachable),
+      healthy: number(summary.healthy),
+      degraded: number(summary.degraded),
+      unreachable: number(summary.unreachable),
+    },
+    nodes: Array.isArray(raw.nodes) ? raw.nodes.map((item) => mapNodeSnapshot(item as BackendRecord)) : [],
+  }
+}
+
+function emptyNodeOverview(): NodeOverview {
+  return { generatedAt: new Date(0).toISOString(), summary: { configured: 0, reachable: 0, healthy: 0, degraded: 0, unreachable: 0 }, nodes: [] }
+}
+
 function unavailableSystemMetrics(): SystemMetrics {
   return {
     cpuUsage: 0,
@@ -566,6 +697,15 @@ export class ApiClient {
 
   async getBenchmarkHistoryState(): Promise<ReadResult<BenchmarkResult[]>> {
     return this.read('benchmarks', () => [], async () => mapBenchmarkHistory(await this.getJson('/api/benchmarks')))
+  }
+
+  async getNodeOverview(): Promise<NodeOverview> {
+    if (this.mode === 'mock') return emptyNodeOverview()
+    return mapNodeOverview(await this.getJson('/api/nodes'))
+  }
+
+  async getNodeOverviewState(): Promise<ReadResult<NodeOverview>> {
+    return this.read('nodes', () => emptyNodeOverview(), () => this.getNodeOverview(), () => emptyNodeOverview())
   }
 
   private async read<T>(key: string, mock: () => T, live: () => Promise<T>, unavailable: () => T = mock): Promise<ReadResult<T>> {

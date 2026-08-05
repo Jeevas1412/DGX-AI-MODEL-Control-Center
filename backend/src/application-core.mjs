@@ -48,6 +48,10 @@ function defaultCapabilities() {
   };
 }
 
+function emptyNodeOverview() {
+  return { generatedAt: new Date().toISOString(), summary: { configured: 0, reachable: 0, healthy: 0, degraded: 0, unreachable: 0 }, nodes: [] };
+}
+
 function disabledLocalControl() {
   return { enabled: false, localOnly: true, services: [], actions: [] };
 }
@@ -170,6 +174,7 @@ export function createApplicationCore({
   remoteDesktopStatusProvider = null,
   hardwareSnapshotProvider = null,
   hardwareHistoryStore = null,
+  nodeSnapshotProvider = null,
 } = {}) {
   const registrationPlans = new Map();
   const managedServicePlans = new Map();
@@ -276,6 +281,24 @@ export function createApplicationCore({
       if (url.origin !== 'http://application.local' || !url.pathname.startsWith('/api/')) throw new Error();
     } catch {
       return error(404, 'Not found');
+    }
+
+    if (url.pathname === '/api/nodes') {
+      if (method !== 'GET') return error(405, 'This API is read-only.', { allow: 'GET' });
+      if (!nodeSnapshotProvider) return result(200, emptyNodeOverview());
+      try { return result(200, await nodeSnapshotProvider()); }
+      catch (cause) { return error(503, cause instanceof Error ? `Node aggregation is unavailable. ${cause.message}` : 'Node aggregation is unavailable.'); }
+    }
+    const nodeDetail = url.pathname.match(/^\/api\/nodes\/([a-z0-9][a-z0-9-]{0,63})$/);
+    if (nodeDetail) {
+      if (method !== 'GET') return error(405, 'This API is read-only.', { allow: 'GET' });
+      if (!nodeSnapshotProvider) return error(404, 'Node was not found.');
+      try {
+        const nodeResult = await nodeSnapshotProvider({ profileId: nodeDetail[1] });
+        const node = nodeResult.nodes[0];
+        if (!node) return error(404, 'Node was not found.');
+        return result(200, node);
+      } catch (cause) { return error(503, cause instanceof Error ? `Node snapshot is unavailable. ${cause.message}` : 'Node snapshot is unavailable.'); }
     }
 
     if (url.pathname === '/api/setup/profiles') {

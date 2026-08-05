@@ -880,3 +880,198 @@
     padding: var(--spacing-md);
   }
 }
+
+/* ── 0.2.0: 双节点总览 ── */
+.node-overview-section {
+  display: grid;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-lg);
+}
+
+.node-overview-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--spacing-lg);
+}
+
+.node-overview-heading h2 {
+  font-size: clamp(1.2rem, 1.8vw, 1.6rem);
+  margin: var(--spacing-xs) 0;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.node-overview-heading p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.node-summary-line {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.node-card {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+  transition: all var(--transition-normal);
+  background: var(--bg-secondary);
+}
+
+.node-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  opacity: 0.7;
+}
+
+.node-card.status-healthy::before { background: var(--success); }
+.node-card.status-degraded::before { background: var(--warning); }
+.node-card.status-unreachable::before { background: var(--danger); }
+.node-card.status-unknown::before { background: var(--text-tertiary); }
+
+.node-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.node-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-md);
+}
+
+.node-card.active:hover {
+  transform: none;
+}
+
+.node-card-main {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--spacing-lg);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.node-card.active .node-card-main {
+  cursor: default;
+}
+
+.node-card-topline {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.node-status-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.node-status-badge.healthy { color: var(--success); border-color: var(--success); }
+.node-status-badge.degraded { color: var(--warning); border-color: var(--warning); }
+.node-status-badge.unreachable { color: var(--danger); border-color: var(--danger); }
+.node-status-badge.unknown { color: var(--text-tertiary); }
+
+.node-active-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--accent-contrast, #fff);
+  background: var(--accent);
+}
+
+.node-switch-hint {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.node-card h3 {
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: 1.1rem;
+  font-family: var(--font-mono);
+}
+
+.node-alias-line {
+  margin: 0 0 var(--spacing-md) 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.node-error-line {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.node-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+
+.node-stat-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.node-stat-grid dt {
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+}
+
+.node-stat-grid dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 720px) {
+  .node-overview-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .node-summary-line {
+    white-space: normal;
+  }
+
+  .node-stat-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,7 +1,7 @@
 {
   "name": "dgx-ai-control-center-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "author": "DGX AI Control Center contributors",
   "type": "module",
@@ -36,16 +36,23 @@
       {
         "from": "../frontend/dist",
         "to": "frontend/dist",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "../backend/src",
         "to": "backend/src",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "extraResources": [
-      { "from": "../scripts/recover-operation-ledger-lock.ps1", "to": "tools/recover-operation-ledger-lock.ps1" }
+      {
+        "from": "../scripts/recover-operation-ledger-lock.ps1",
+        "to": "tools/recover-operation-ledger-lock.ps1"
+      }
     ],
     "win": {
       "target": [

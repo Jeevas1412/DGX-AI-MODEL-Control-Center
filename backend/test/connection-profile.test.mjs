@@ -42,7 +42,7 @@ test('connection profile store starts empty and atomically persists validated pr
   const filePath = join(directory, 'profiles.json');
   try {
     const store = createConnectionProfileStore({ filePath });
-    assert.deepEqual(await store.load(), { schemaVersion: 3, activeProfileId: null, profiles: [] });
+    assert.deepEqual(await store.load(), { schemaVersion: 4, activeProfileId: null, monitoredProfileIds: [], profiles: [] });
     const saved = await store.upsert(profile());
     assert.equal(saved.profiles.length, 1);
     assert.deepEqual((await store.load()).profiles, [{ ...profile(), verification: { status: 'unverified', verifiedAt: null, evidence: null } }]);
@@ -59,8 +59,9 @@ test('legacy profiles migrate in memory as inactive and unverified, and only ver
     await (await import('node:fs/promises')).writeFile(filePath, JSON.stringify({ schemaVersion: 1, profiles: [profile()] }), 'utf8');
     const store = createConnectionProfileStore({ filePath });
     assert.deepEqual(await store.load(), {
-      schemaVersion: 3,
+      schemaVersion: 4,
       activeProfileId: null,
+      monitoredProfileIds: [],
       profiles: [{ ...profile(), verification: { status: 'unverified', verifiedAt: null, evidence: null } }],
     });
     await assert.rejects(store.activate('dgx-home'), /must be verified/);
@@ -84,8 +85,9 @@ test('version 2 verified profiles fail closed until target and capability eviden
     }), 'utf8');
     const store = createConnectionProfileStore({ filePath });
     const migrated = await store.load();
-    assert.equal(migrated.schemaVersion, 3);
+    assert.equal(migrated.schemaVersion, 4);
     assert.equal(migrated.activeProfileId, null);
+    assert.deepEqual(migrated.monitoredProfileIds, []);
     assert.deepEqual(migrated.profiles[0].verification, { status: 'unverified', verifiedAt: null, evidence: null });
     await assert.rejects(store.activate('dgx-home'), /must be verified/);
   } finally {
@@ -107,6 +109,27 @@ test('connection profile store preserves created time while allowing an update',
   }
 });
 
+test('schema version 3 migrates losslessly to 4, keeping verification evidence and the active profile', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dgx-profile-test-'));
+  const filePath = join(directory, 'profiles.json');
+  try {
+    await (await import('node:fs/promises')).writeFile(filePath, JSON.stringify({
+      schemaVersion: 3,
+      activeProfileId: 'dgx-home',
+      profiles: [{ ...profile(), verification: { status: 'verified', verifiedAt: timestamp, evidence } }],
+    }), 'utf8');
+    const store = createConnectionProfileStore({ filePath });
+    const migrated = await store.load();
+    assert.equal(migrated.schemaVersion, 4);
+    assert.equal(migrated.activeProfileId, 'dgx-home');
+    assert.deepEqual(migrated.monitoredProfileIds, []);
+    assert.equal(migrated.profiles[0].verification.status, 'verified');
+    assert.deepEqual(migrated.profiles[0].verification.evidence, evidence);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('connection profile activation is blocked while the operation guard reports active or recoverable work', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'dgx-profile-test-'));
   try {
@@ -118,6 +141,43 @@ test('connection profile activation is blocked while the operation guard reports
     await store.markVerified('dgx-home', evidence, new Date('2026-07-20T10:00:00.000Z'));
     await assert.rejects(store.activate('dgx-home'), /cannot change while a control operation is running or requires recovery/);
     assert.equal((await store.load()).activeProfileId, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('schema version 4 keeps the active profile scalar and separates the read-only monitor scope', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dgx-profile-test-'));
+  const filePath = join(directory, 'profiles.json');
+  try {
+    await (await import('node:fs/promises')).writeFile(filePath, JSON.stringify({
+      schemaVersion: 4,
+      activeProfileId: null,
+      monitoredProfileIds: ['dgx-home'],
+      profiles: [profile()],
+    }), 'utf8');
+    const store = createConnectionProfileStore({ filePath });
+    const loaded = await store.load();
+    assert.equal(loaded.schemaVersion, 4);
+    assert.equal(loaded.activeProfileId, null);
+    assert.deepEqual(loaded.monitoredProfileIds, ['dgx-home']);
+    assert.equal(loaded.profiles.length, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('schema version 4 rejects monitor scope entries that are not known profiles', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dgx-profile-test-'));
+  const filePath = join(directory, 'profiles.json');
+  try {
+    await (await import('node:fs/promises')).writeFile(filePath, JSON.stringify({
+      schemaVersion: 4,
+      activeProfileId: null,
+      monitoredProfileIds: ['no-such-profile'],
+      profiles: [profile()],
+    }), 'utf8');
+    await assert.rejects(createConnectionProfileStore({ filePath }).load(), /monitoredProfileIds is invalid/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

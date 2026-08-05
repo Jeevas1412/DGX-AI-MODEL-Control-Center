@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0] - 2026-08-05
+
+- 新增只读双节点概览（B-lite，按 Copilot 方案）：连接资料 schema 升至 v4，新增 `monitoredProfileIds`（只读监控范围），`activeProfileId` 保持单值（单机操作语义不变）。
+- 后端抽取 NodeProbeService（`node-probe.mjs`）：`createNodeProbe` / `createNodeSnapshotProvider`，`Promise.allSettled` 并行探活、partial-success（单节点失败返回 200 + 节点级错误）。
+- 新增只读接口：`GET /api/nodes`（四态聚合：healthy/degraded/unreachable/unknown）与 `GET /api/nodes/:profileId`（单节点快照）；总览不含完整日志。
+- 新增 `emptyNodeOverview` 兜底；`server.mjs` 共享 `createSessionForProfile` 工厂，聚合与单机会话同源。
+- 前端总览页新增双节点总览区块：节点卡展示 hostname / SSH 别名 / 四态徽章 / GPU / 驱动 / 统一内存 / 服务数 / 采集时间，点击卡片切换当前操作节点（`activeProfileId` 保持单值）。
+- 互联层只读探针（快照新增 `interconnect`）：集群口 enp1s0f1np1 状态/MTU、RDMA link（rocep1s0f1 ACTIVE）、RoCEv2 GID idx3、RX/TX 与 error/drop 计数器、对端可达（固定 Spark 双机集群网互 ping，不做带宽测试）。
+- vLLM 服务层摘要（快照新增 `vllm`）：发现 vLLM 运行时端口并做 `/healthz` + `/v1/models` 只读探活（PROCESS_UP / API_READY 分层；真实推理探针留作低频后续任务，不随前端刷新运行）。
+- 本版本为开发候选，未晋级、未安装为正式版。
+
 ## [0.1.0] - 2026-07-22
 
 - Rebased the active product and installer version on the internal-test line. This version is not a 1.0.0 release.

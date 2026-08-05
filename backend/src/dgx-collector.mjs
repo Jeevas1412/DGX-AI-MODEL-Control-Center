@@ -197,6 +197,100 @@ def parse_vlm_config():
     except ValueError:
         return {}
 
+def parse_interconnect():
+    """Read-only Spark-pair fabric state. All commands are fixed diagnostics;
+    no RDMA bandwidth test is ever run as part of this status probe."""
+    def sysfs_glob(pattern, preferred=None):
+        try:
+            import glob as _glob
+            matches = _glob.glob(pattern)
+            if not matches:
+                return None
+            if preferred:
+                ordered = [item for item in matches if preferred in item] + [item for item in matches if preferred not in item]
+                matches = ordered
+            for match in matches:
+                try:
+                    with open(match, 'r', encoding='utf-8') as handle:
+                        content = handle.read().strip()
+                    if content and content != '0000:0000:0000:0000:0000:0000:0000:0000':
+                        return content
+                except OSError:
+                    continue
+            return None
+        except OSError:
+            return None
+    link_line = command(['ip', '-br', '-o', 'link', 'show', 'dev', 'enp1s0f1np1']).strip()
+    link_state = None
+    link_address = None
+    if link_line:
+        parts = link_line.split()
+        if len(parts) >= 2:
+            link_state = parts[1] if parts[1] in ('UP', 'DOWN', 'UNKNOWN') else None
+        if len(parts) >= 3:
+            link_address = parts[2]
+    mtu_text = sysfs_glob('/sys/class/net/enp1s0f1np1/mtu')
+    rdma_out = command(['rdma', 'link', 'show']).strip()
+    rdma_states = []
+    for line in rdma_out.splitlines():
+        match = re.search(r'(\S+)\s+state\s+(\S+)', line)
+        if match:
+            rdma_states.append({'device': match.group(1), 'state': match.group(2)})
+    gid_text = sysfs_glob('/sys/class/infiniband/*/ports/*/gids/3')
+    counters = {}
+    for name in ('rx_bytes', 'tx_bytes', 'rx_errors', 'tx_errors', 'rx_dropped', 'tx_dropped'):
+        value = sysfs_glob('/sys/class/net/enp1s0f1np1/statistics/' + name)
+        try:
+            counters[name] = int(value) if value is not None else None
+        except ValueError:
+            counters[name] = None
+    peer = None
+    try:
+        addr_out = command(['ip', '-4', '-o', 'addr', 'show', 'dev', 'enp1s0f1np1'])
+        addr_match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)', addr_out)
+        if addr_match:
+            address = addr_match.group(1)
+            last = int(address.split('.')[-1])
+            if last in (10, 11):
+                peer_address = address[:address.rfind('.') + 1] + ('11' if last == 10 else '10')
+                ping_result = subprocess.run(['ping', '-c', '1', '-W', '1', peer_address], capture_output=True, timeout=3, check=False)
+                peer = {'peerAddress': peer_address, 'reachable': ping_result.returncode == 0}
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        peer = None
+    return {
+        'linkState': link_state,
+        'linkAddress': link_address,
+        'mtu': number(mtu_text),
+        'rdma': rdma_states,
+        'roceV2GidIndex3': gid_text if isinstance(gid_text, str) and gid_text.startswith('0000:') else gid_text,
+        'counters': counters,
+        'peer': peer,
+    }
+
+def vllm_api_probe(runtimes):
+    """Fixed low-cost readiness probe against discovered vLLM runtime ports.
+    /healthz is a zero-cost liveness check; /v1/models is a read-only model
+    listing that never generates tokens."""
+    results = []
+    for runtime in runtimes:
+        port = runtime.get('port')
+        if not port:
+            continue
+        health_status, _ = request_text('http://127.0.0.1:%d/healthz' % port)
+        models = request_json('http://127.0.0.1:%d/v1/models' % port)
+        model_ids = []
+        if isinstance(models, dict):
+            for entry in models.get('data') or []:
+                if isinstance(entry, dict) and isinstance(entry.get('id'), str):
+                    model_ids.append(entry['id'])
+        results.append({
+            'port': port,
+            'health': health_status,
+            'models': model_ids[:16],
+        })
+    return results
+
+
 nvfp4_proxy = request_json('http://127.0.0.1:8091/stats') or {}
 vlm_proxy = request_json('http://127.0.0.1:8003/stats') or {}
 image_system = request_json('http://127.0.0.1:8188/system_stats') or {}
@@ -216,9 +310,12 @@ draft_tokens = metric(metrics, 'vllm:spec_decode_num_draft_tokens_total')
 
 compute_apps = parse_compute_apps()
 model_runtimes = parse_model_runtimes(compute_apps)
+vllm_api = vllm_api_probe(model_runtimes)
+interconnect = parse_interconnect()
 
 print(json.dumps({
     'generatedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+    'hostname': command(['hostname']).strip(),
     'memory': parse_memory(),
     'gpu': {**parse_gpu(), 'computeApps': compute_apps, 'modelRuntimes': model_runtimes, 'vllmRuntimes': [item for item in model_runtimes if item.get('engine') == 'vllm'], 'unifiedTotalBytes': image_device.get('vram_total'), 'unifiedFreeBytes': image_device.get('vram_free')},
     'nvfp4': {
@@ -250,6 +347,8 @@ print(json.dumps({
         'ramTotalBytes': image_system.get('system', {}).get('ram_total'),
         'ramFreeBytes': image_system.get('system', {}).get('ram_free'),
     },
+    'interconnect': interconnect,
+    'vllmApi': vllm_api,
     'compatibilityProxyHealthy': compat_status == 200,
 }))
 PY
@@ -440,10 +539,38 @@ export function snapshotFromProbe(probe) {
   const observedComputeMiB = memoryMiB(computeApps, () => true) ?? 0;
   const observedOtherGpuComputeMiB = Math.max(0, observedComputeMiB - observedModelMemoryMiB);
   const coreHealthy = nvfp4Running && vlmRunning && image.available && probe.compatibilityProxyHealthy;
+  const interconnect = typeof probe.interconnect === 'object' && probe.interconnect !== null && !Array.isArray(probe.interconnect) ? probe.interconnect : {};
+  const vllmApi = Array.isArray(probe.vllmApi) ? probe.vllmApi : [];
+  const rdmaUp = Array.isArray(interconnect.rdma) && interconnect.rdma.some((item) => item?.state === 'ACTIVE');
+  const peerReachable = interconnect.peer?.reachable === true;
+  const vllmReadyPorts = vllmApi.filter((item) => item?.health === 200).map((item) => item.port);
 
   return {
     generatedAt,
     source: 'dgx-ssh-read-only',
+    interconnect: Object.freeze({
+      linkState: typeof interconnect.linkState === 'string' ? interconnect.linkState : null,
+      linkAddress: typeof interconnect.linkAddress === 'string' ? interconnect.linkAddress : null,
+      mtu: asNumber(interconnect.mtu),
+      rdmaUp,
+      rdmaDevices: Array.isArray(interconnect.rdma) ? interconnect.rdma.map((item) => Object.freeze({ device: String(item.device), state: String(item.state) })) : [],
+      roceV2GidIndex3: typeof interconnect.roceV2GidIndex3 === 'string' ? interconnect.roceV2GidIndex3 : null,
+      counters: Object.freeze({
+        rxBytes: asNumber(interconnect.counters?.rx_bytes),
+        txBytes: asNumber(interconnect.counters?.tx_bytes),
+        rxErrors: asNumber(interconnect.counters?.rx_errors),
+        txErrors: asNumber(interconnect.counters?.tx_errors),
+        rxDropped: asNumber(interconnect.counters?.rx_dropped),
+        txDropped: asNumber(interconnect.counters?.tx_dropped),
+      }),
+      peer: interconnect.peer ? Object.freeze({ peerAddress: String(interconnect.peer.peerAddress), reachable: interconnect.peer.reachable === true }) : null,
+      peerReachable,
+    }),
+    vllm: Object.freeze({
+      runtimes: observedModelRuntimes.filter((item) => item.engine === 'vllm'),
+      apiReadyPorts: vllmReadyPorts,
+      apiReadiness: vllmApi.map((item) => Object.freeze({ port: asNumber(item.port), healthy: item.health === 200, modelIds: Array.isArray(item.models) ? item.models : [] })),
+    }),
     health: {
       status: coreHealthy ? 'ok' : 'degraded',
       generatedAt,
@@ -457,6 +584,7 @@ export function snapshotFromProbe(probe) {
     ],
     system: {
       generatedAt,
+      hostname: typeof probe.hostname === 'string' ? probe.hostname : null,
       memoryTotalBytes: asNumber(memory.totalBytes),
       memoryAvailableBytes: asNumber(memory.availableBytes),
       gpuName: typeof gpu.name === 'string' ? gpu.name : null,

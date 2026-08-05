@@ -262,7 +262,96 @@ export interface ConnectionProfile {
 export interface SetupProfilesDoc {
   schemaVersion: number;
   activeProfileId: string | null;
+  /** 只读监控范围（schema v4）：空数组表示聚合所有已验证连接资料。 */
+  monitoredProfileIds?: string[];
   profiles: ConnectionProfile[];
+}
+
+// ── 0.2.0: 双节点只读总览 ──
+
+/** 节点四态：健康 / 降级 / 不可达 / 未知 */
+export type NodeStatus = 'healthy' | 'degraded' | 'unreachable' | 'unknown';
+
+export interface NodeSnapshotGpu {
+  gpuName: string | null;
+  gpuDriverVersion: string | null;
+  gpuMemoryTotalMiB: number | null;
+  gpuMemoryUsedMiB: number | null;
+  gpuUtilizationPercent: number | null;
+  gpuPowerWatts: number | null;
+  gpuTemperatureCelsius: number | null;
+}
+
+export interface NodeSnapshotService {
+  id: string;
+  name: string;
+  status: string;
+  port: number | null;
+  residency: string | null;
+}
+
+export interface NodeSnapshotError {
+  kind: string | null;
+  message: string;
+}
+
+/** 集群互联只读摘要（0.2.0 阶段 5）：CX-7 集群口 / RDMA / RoCE / 对端可达。 */
+export interface NodeSnapshotInterconnect {
+  linkState: string | null;
+  linkAddress: string | null;
+  mtu: number | null;
+  rdmaUp: boolean;
+  rdmaDevices: Array<{ device: string; state: string }>;
+  roceV2GidIndex3: string | null;
+  counters: {
+    rxBytes: number | null;
+    txBytes: number | null;
+    rxErrors: number | null;
+    txErrors: number | null;
+    rxDropped: number | null;
+    txDropped: number | null;
+  };
+  peer: { peerAddress: string; reachable: boolean } | null;
+  peerReachable: boolean;
+}
+
+/** vLLM 服务层摘要（PROCESS_UP / API_READY 分层）。 */
+export interface NodeSnapshotVllm {
+  runtimes: Array<{ engine: string; port: number; modelId: string; usedMiB: number }>;
+  apiReadyPorts: number[];
+  apiReadiness: Array<{ port: number; healthy: boolean; modelIds: string[] }>;
+}
+
+/** 聚合接口 /api/nodes 返回的单节点只读快照。 */
+export interface NodeSnapshot {
+  profileId: string;
+  sshAlias: string;
+  displayName: string;
+  hostname: string | null;
+  reachable: boolean;
+  status: NodeStatus;
+  collectedAt: string;
+  latencyMs: number | null;
+  gpu: NodeSnapshotGpu | null;
+  system: { hostname: string | null; gpuName: string | null; gpuDriverVersion: string | null; gpuMemoryTotalMiB: number | null; gpuMemoryUsedMiB: number | null; gpuUtilizationPercent: number | null; gpuPowerWatts: number | null; gpuTemperatureCelsius: number | null; memoryTotalBytes: number | null; memoryAvailableBytes: number | null } | null;
+  services: NodeSnapshotService[];
+  interconnect: NodeSnapshotInterconnect | null;
+  vllm: NodeSnapshotVllm | null;
+  errors: NodeSnapshotError[];
+}
+
+export interface NodeOverviewSummary {
+  configured: number;
+  reachable: number;
+  healthy: number;
+  degraded: number;
+  unreachable: number;
+}
+
+export interface NodeOverview {
+  generatedAt: string;
+  summary: NodeOverviewSummary;
+  nodes: NodeSnapshot[];
 }
 
 export interface ActivateProfileResponse {

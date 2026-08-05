@@ -54,8 +54,12 @@ test('desktop bridge covers the complete fixed renderer API contract', () => {
     '/api/model-catalog/search?q=Qwen3',
     '/api/logs?service=nvfp4&lines=200',
     `/api/local-control/operations/${id}`,
+    '/api/nodes',
+    `/api/nodes/${id}`,
   ];
   for (const path of readPaths) assert.equal(validateDesktopApiRequest({ method: 'GET', path }).path, path);
+  assert.throws(() => validateDesktopApiRequest({ method: 'GET', path: '/api/nodes/../../etc/passwd' }));
+  assert.throws(() => validateDesktopApiRequest({ method: 'GET', path: `/api/nodes/${id}/logs` }), /allowlisted/);
 
   const writes = [
     { path: '/api/setup/profiles', body: { displayName: 'DGX', sshAlias: 'dgx' } },

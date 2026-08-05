@@ -5,7 +5,7 @@ import { localizedActionName, localizedOperationPhase, localizedRuntimeMessage, 
 import { localizedServiceKind, localizedServiceName, modelLoadState } from '../services/display-labels'
 import { controlDisclosure, planExpiryLabel } from '../services/control-disclosure'
 import { mockOverviewTrends } from '../mocks/data'
-import { type ModelMetrics, type ServiceInfo, type ServiceStatus, type SystemMetrics } from '../types'
+import { type ModelMetrics, type NodeOverview, type NodeSnapshot, type NodeStatus, type ServiceInfo, type ServiceStatus, type SystemMetrics } from '../types'
 import './Overview.css'
 
 type ControlPlan = LocalControlPlan | ManagedServicePlan
@@ -54,6 +54,17 @@ const statusText: Record<ServiceStatus, string> = {
   offline: '离线',
   registered: '已登记，按需加载',
   'adapter-unavailable': '适配器待验证',
+}
+
+const nodeStatusText: Record<NodeStatus, string> = {
+  healthy: '健康',
+  degraded: '降级',
+  unreachable: '不可达',
+  unknown: '未知',
+}
+
+function nodeCardLabel(node: NodeSnapshot) {
+  return node.hostname ?? (node.displayName !== 'unknown' ? node.displayName : node.sshAlias)
 }
 
 const OPERATION_TIMEOUT_MS: Record<LocalControlAction, number> = {
@@ -128,10 +139,17 @@ export default function Overview() {
   const getServices = useCallback(() => api.getServicesState(), [])
   const getNvfp4 = useCallback(() => api.getModelMetricsState('nvfp4'), [])
   const getHealth = useCallback(() => api.getHealthState(), [])
+  const getNodes = useCallback(() => api.getNodeOverviewState(), [])
+  const getProfiles = useCallback(() => api.getSetupProfiles().then((document) => ({ data: document, stale: false, updatedAt: new Date().toISOString() })), [])
   const system = useApiResource<SystemMetrics>(getSystem)
   const serviceList = useApiResource<ServiceInfo[]>(getServices)
   const nvfp4 = useApiResource<ModelMetrics>(getNvfp4)
   const health = useApiResource(getHealth, 15_000)
+  const nodeOverview = useApiResource<NodeOverview>(getNodes, 10_000)
+  const profilesResource = useApiResource(getProfiles, 30_000)
+  const nodeOverviewData = nodeOverview.data
+  const profiles = profilesResource.data
+  const activeProfileId = profiles?.activeProfileId ?? null
   const systemMetrics = system.data
   const services = serviceList.data ?? []
   const nvfp4Metrics = nvfp4.data
@@ -299,6 +317,17 @@ export default function Overview() {
     }
   }
 
+  async function switchActiveNode(profileId: string) {
+    if (api.mode === 'mock' || profileId === activeProfileId) return
+    try {
+      await api.activateSetupProfile(profileId)
+      setNotice('已切换当前操作节点；页面数据将刷新为该节点的只读状态。')
+      await Promise.all([profilesResource.refresh(), nodeOverview.refresh(), refreshAll()])
+    } catch (error) {
+      setNotice(localizedRuntimeMessage(error, '切换节点失败，请确认连接资料仍有效。'))
+    }
+  }
+
   if (loading || !systemMetrics) {
     return <div className="overview-loading"><span className="loading-orb" />正在加载总览数据…</div>
   }
@@ -312,6 +341,48 @@ export default function Overview() {
 
       {stale && <div className="overview-alert">部分接口暂不可用，已保留最后一次有效数据。{loadError ? ` ${loadError}` : ''}</div>}
       {notice && <div className="overview-notice"><span>{notice}</span><button onClick={() => setNotice(null)}>关闭</button></div>}
+
+      {nodeOverviewData && nodeOverviewData.nodes.length > 0 && (
+        <section className="node-overview-section" aria-label="双节点总览">
+          <div className="node-overview-heading">
+            <div><p className="eyebrow">节点</p><h2>双节点总览</h2><p>并行只读采集两台 DGX；点击卡片可切换当前操作节点，详情与写操作始终只作用于当前节点。</p></div>
+            <span className="node-summary-line">已配置 {nodeOverviewData.summary.configured} · 可达 {nodeOverviewData.summary.reachable} · 健康 {nodeOverviewData.summary.healthy} · 降级 {nodeOverviewData.summary.degraded} · 不可达 {nodeOverviewData.summary.unreachable}</span>
+          </div>
+          <div className="node-grid">
+            {nodeOverviewData.nodes.map((node) => {
+              const active = node.profileId === activeProfileId
+              const runningServices = node.services.filter((item) => item.status === 'running').length
+              const memoryTotalGiB = node.system?.memoryTotalBytes === null || node.system?.memoryTotalBytes === undefined ? null : Math.round((node.system.memoryTotalBytes / 1024 ** 3) * 10) / 10
+              const memoryFreeGiB = node.system?.memoryAvailableBytes === null || node.system?.memoryAvailableBytes === undefined ? null : Math.round((node.system.memoryAvailableBytes / 1024 ** 3) * 10) / 10
+              return (
+                <article className={`node-card status-${node.status}${active ? ' active' : ''}`} key={node.profileId}>
+                  <button className="node-card-main" onClick={() => void switchActiveNode(node.profileId)} disabled={active} aria-label={active ? `当前节点 ${nodeCardLabel(node)}` : `切换到节点 ${nodeCardLabel(node)}`}>
+                    <div className="node-card-topline">
+                      <span className={`node-status-badge ${node.status}`}>{nodeStatusText[node.status]}</span>
+                      {active && <span className="node-active-badge">当前</span>}
+                      {!active && <span className="node-switch-hint">点击切换</span>}
+                    </div>
+                    <h3>{nodeCardLabel(node)}</h3>
+                    <p className="node-alias-line">{node.sshAlias}{node.displayName !== 'unknown' && node.displayName !== node.hostname ? ` · ${node.displayName}` : ''}</p>
+                    {node.errors.length > 0
+                      ? <p className="node-error-line" role="alert">{node.errors[0].message}</p>
+                      : <dl className="node-stat-grid">
+                        <div><dt>GPU</dt><dd>{node.gpu?.gpuName ?? '—'}{node.gpu?.gpuUtilizationPercent !== null && node.gpu?.gpuUtilizationPercent !== undefined ? ` · ${node.gpu.gpuUtilizationPercent}%` : ''}</dd></div>
+                        <div><dt>驱动</dt><dd>{node.gpu?.gpuDriverVersion ?? '—'}</dd></div>
+                        <div><dt>统一内存</dt><dd>{memoryFreeGiB === null ? '—' : `${memoryFreeGiB} GB 可用${memoryTotalGiB === null ? '' : ` / ${memoryTotalGiB} GB`}`}</dd></div>
+                        <div><dt>服务</dt><dd>{node.services.length} 项（{runningServices} 运行中）</dd></div>
+                        <div><dt>互联</dt><dd>{node.interconnect ? `${node.interconnect.rdmaUp ? 'RDMA UP' : 'RDMA DOWN'} · 对端${node.interconnect.peerReachable ? '可达' : '未知'}${node.interconnect.mtu ? ` · MTU ${node.interconnect.mtu}` : ''}` : '—'}</dd></div>
+                        <div><dt>vLLM</dt><dd>{node.vllm && node.vllm.apiReadyPorts.length > 0 ? `API 就绪 :${node.vllm.apiReadyPorts.join(', :')}` : node.vllm && node.vllm.runtimes.length > 0 ? `进程在 ${node.vllm.runtimes.length} 个` : '未发现运行实例'}</dd></div>
+                        <div><dt>采集时间</dt><dd>{new Date(node.collectedAt).toLocaleTimeString('zh-CN', { hour12: false })}</dd></div>
+                      </dl>}
+                  </button>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
       {backgroundOperation?.status === 'running' && (() => {
         const progress = operationProgress(backgroundOperation, operationClock)
         return <section className="background-operation-status" aria-live="polite">

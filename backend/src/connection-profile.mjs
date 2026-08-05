@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const MAX_PROFILES = 8;
 const PROFILE_KEYS = new Set(['id', 'displayName', 'transport', 'sshAlias', 'hostKeyFingerprint', 'verification', 'createdAt', 'updatedAt']);
 
@@ -69,22 +69,50 @@ export function validateConnectionProfile(profile) {
   });
 }
 
+/**
+ * The read-only monitor scope. `monitoredProfileIds` (schema 4) is a
+ * separate axis from `activeProfileId`: the active profile remains the
+ * single operation/detail target (single-node write semantics are
+ * preserved), while the monitor list defines which verified profiles the
+ * read-only /api/nodes aggregation covers. An empty list means "all
+ * verified profiles". Only profile ids that exist in the store are valid.
+ */
+function monitoredProfileIds(value, profiles) {
+  const candidate = value === undefined || value === null ? [] : value;
+  if (!Array.isArray(candidate) || candidate.length > profiles.length || new Set(candidate).size !== candidate.length) {
+    throw new Error('Connection profile monitoredProfileIds is invalid.');
+  }
+  for (const id of candidate) {
+    if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id) || !profiles.some((profile) => profile.id === id)) {
+      throw new Error('Connection profile monitoredProfileIds is invalid.');
+    }
+  }
+  return Object.freeze([...candidate]);
+}
+
 function validateDocument(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.profiles) || value.profiles.length > MAX_PROFILES) {
     throw new Error('Connection profile store is invalid.');
   }
-  if (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== SCHEMA_VERSION) throw new Error('Connection profile store is invalid.');
-  // Earlier profile schemas carried only a timestamp. They cannot prove that
-  // the same target and capability set are still being used, so migration
-  // fails closed and requires an explicit fresh, read-only verification.
+  if (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== SCHEMA_VERSION) {
+    throw new Error('Connection profile store is invalid.');
+  }
+  // Schema 3 and 4 share the same profile shape and the same verification
+  // evidence (targetMachineSha256 + capabilitySnapshotSha256). The schema-4
+  // document only adds the read-only monitor scope, so schema-3 evidence is
+  // preserved and only the new field defaults to "all verified profiles".
+  // Schema 1-2 carried only a timestamp and cannot prove the target and
+  // capability set are still in use, so they migrate fail-closed and require
+  // an explicit fresh, read-only verification.
+  const preservesVerification = value.schemaVersion === SCHEMA_VERSION || value.schemaVersion === 3;
   const profiles = value.profiles.map((profile) => validateConnectionProfile(
-    value.schemaVersion === SCHEMA_VERSION ? profile : { ...profile, verification: { status: 'unverified', verifiedAt: null, evidence: null } },
+    preservesVerification ? profile : { ...profile, verification: { status: 'unverified', verifiedAt: null, evidence: null } },
   ));
   if (new Set(profiles.map((profile) => profile.id)).size !== profiles.length) throw new Error('Connection profile IDs must be unique.');
 
   // Version 1 had no activation or verification state. Loading it is a safe
   // in-memory migration: historical profiles never gain remote authority.
-  const activeProfileId = value.schemaVersion === SCHEMA_VERSION ? value.activeProfileId : null;
+  const activeProfileId = preservesVerification ? value.activeProfileId : null;
   if (activeProfileId !== null && (typeof activeProfileId !== 'string' || !profiles.some((profile) => profile.id === activeProfileId))) {
     throw new Error('Connection profile activeProfileId is invalid.');
   }
@@ -92,11 +120,13 @@ function validateDocument(value) {
   if (activeProfile && activeProfile.verification.status !== 'verified') {
     throw new Error('Active connection profile must be verified.');
   }
-  return Object.freeze({ schemaVersion: SCHEMA_VERSION, activeProfileId, profiles });
+  // Schema 1-3 documents carry no monitor scope; they migrate to "all
+  // verified profiles". Schema 4 must contain a valid list.
+  const monitored = value.schemaVersion === SCHEMA_VERSION ? monitoredProfileIds(value.monitoredProfileIds, profiles) : [];  return Object.freeze({ schemaVersion: SCHEMA_VERSION, activeProfileId, monitoredProfileIds: monitored, profiles });
 }
 
 function initialDocument() {
-  return Object.freeze({ schemaVersion: SCHEMA_VERSION, activeProfileId: null, profiles: [] });
+  return Object.freeze({ schemaVersion: SCHEMA_VERSION, activeProfileId: null, monitoredProfileIds: [], profiles: [] });
 }
 
 export function newOpenSshAliasProfile({ displayName, sshAlias, hostKeyFingerprint = null }, now = new Date()) {
@@ -149,7 +179,7 @@ export function createConnectionProfileStore({ filePath, canActivate = async () 
     const profiles = existing
       ? current.profiles.map((item) => item.id === nextProfile.id ? nextProfile : item)
       : [...current.profiles, nextProfile];
-    return save({ schemaVersion: SCHEMA_VERSION, activeProfileId: current.activeProfileId, profiles });
+    return save({ schemaVersion: SCHEMA_VERSION, activeProfileId: current.activeProfileId, monitoredProfileIds: current.monitoredProfileIds, profiles });
   }
 
   async function markVerified(id, evidence, now = new Date()) {
@@ -159,7 +189,7 @@ export function createConnectionProfileStore({ filePath, canActivate = async () 
     if (!existing) throw new Error('Connection profile was not found.');
     const verifiedAt = now.toISOString();
     const updated = validateConnectionProfile({ ...existing, verification: { status: 'verified', verifiedAt, evidence: verificationEvidence(evidence) }, updatedAt: verifiedAt });
-    return save({ schemaVersion: SCHEMA_VERSION, activeProfileId: current.activeProfileId, profiles: current.profiles.map((item) => item.id === profileId ? updated : item) });
+    return save({ schemaVersion: SCHEMA_VERSION, activeProfileId: current.activeProfileId, monitoredProfileIds: current.monitoredProfileIds, profiles: current.profiles.map((item) => item.id === profileId ? updated : item) });
   }
 
   async function activate(id) {
@@ -171,7 +201,7 @@ export function createConnectionProfileStore({ filePath, canActivate = async () 
     if (!await canActivate({ current, nextProfileId: profileId })) {
       throw new Error('Connection profile cannot change while a control operation is running or requires recovery.');
     }
-    return save({ schemaVersion: SCHEMA_VERSION, activeProfileId: profileId, profiles: current.profiles });
+    return save({ schemaVersion: SCHEMA_VERSION, activeProfileId: profileId, monitoredProfileIds: current.monitoredProfileIds, profiles: current.profiles });
   }
 
   return Object.freeze({ load, save, upsert, markVerified, activate });

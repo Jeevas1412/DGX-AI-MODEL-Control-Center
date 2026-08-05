@@ -1,4 +1,4 @@
-import type { ActivateProfileResponse, BenchmarkResult, CreateProfileRequest, CreateProfileResponse, LogEntry, ModelConfig, ModelMetrics, Nvfp4StartupConfig, RequestRecord, ServiceInfo, SetupProfilesDoc, SystemMetrics, VerifyProfileResponse } from '../types'
+import type { ActivateProfileResponse, BenchmarkResult, CreateProfileRequest, CreateProfileResponse, LogEntry, ModelConfig, ModelMetrics, NodeOverview, Nvfp4StartupConfig, RequestRecord, ServiceInfo, SetupProfilesDoc, SystemMetrics, VerifyProfileResponse } from '../types'
 import { mockBenchmarkResults, mockModelConfigs } from '../mocks/data'
 import { createApiClient, type CatalogModelEntry, type CatalogSearchResult, type DgxConnectionStatus, type HardwareHistoryMetric, type HardwareHistoryPoint, type HardwareHistoryRange, type HardwareSummary, type LocalControlAction, type LocalControlOperation, type LocalControlPlan, type ManagedServicePlan, type ModelServiceAdapter, type ModelServiceDraft, type ModelServicePrecheck, type ModelServiceRegistrationPlan, type ModelServiceTemplate, type Nvfp4ParameterAdapterDeploymentPlan, type Nvfp4ParameterAdapterStatus, type Nvfp4ParameterOperation, type Nvfp4ParameterPlan, type Nvfp4ParameterReview, type ReadResult, type RemoteDesktopStatus } from './api-client'
 
@@ -24,6 +24,8 @@ class ApiService {
   getNvfp4StartupConfigState(): Promise<ReadResult<Nvfp4StartupConfig>> { return client.getNvfp4StartupConfigState() }
   getRequestsState(): Promise<ReadResult<RequestRecord[]>> { return client.getRequestsState() }
   getLogsState(service: string, lines = 200): Promise<ReadResult<LogEntry[]>> { return client.getLogsState(service, lines) }
+  getNodeOverviewState(): Promise<ReadResult<NodeOverview>> { return client.getNodeOverviewState() }
+  async getNodeOverview(): Promise<NodeOverview> { return (await client.getNodeOverviewState()).data }
 
   async getHealth() { return (await client.getHealthState()).data }
   async getServices() { return (await client.getServicesState()).data }
@@ -82,3 +84,4 @@ class ApiService {
 export const api = new ApiService()
 export { createApiClient }
 export type { ApiMode, CatalogModelEntry, CatalogSearchResult, DgxConnectionStatus, HardwareHistoryMetric, HardwareHistoryPoint, HardwareHistoryRange, HardwareSummary, LocalControlAction, LocalControlOperation, LocalControlPlan, ManagedServicePlan, ModelServiceAdapter, ModelServiceDraft, ModelServicePrecheck, ModelServiceRegistrationPlan, ModelServiceTemplate, Nvfp4ParameterAdapterDeploymentPlan, Nvfp4ParameterAdapterStatus, Nvfp4ParameterOperation, Nvfp4ParameterPlan, Nvfp4ParameterReview, ReadResult, RemoteDesktopStatus } from './api-client'
+export type { NodeOverview, NodeSnapshot } from '../types'

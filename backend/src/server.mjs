@@ -29,6 +29,7 @@ import { createRemoteDesktopStatusProvider } from './remote-desktop-status.mjs';
 import { createHardwareSnapshotCache, createHardwareSnapshotProvider } from './hardware-collector.mjs';
 import { createHardwareHistoryStore } from './hardware-history.mjs';
 import { createExternalRuntimeCoordinator } from './external-runtime-coordinator.mjs';
+import { createNodeSnapshotProvider } from './node-probe.mjs';
 
 function createPublicAuditWriter(filePath) {
   return async (record) => {
@@ -85,20 +86,22 @@ export function createConfiguredApplicationCore(config = readConfig(), { runtime
   if (!config.dgxReadOnlyEnabled) {
     return createApplicationCore({ profileStore, profileVerifier, benchmarkProvider, modelCatalog, modelServiceRegistry, changeAuditStore, connectionStatusProvider, remoteDesktopStatusProvider });
   }
+  const createSessionForProfile = async (profile) => Object.freeze({
+    snapshotProvider: createSnapshotCache(
+      createDgxSnapshotProvider({ sshTarget: profile.sshAlias }),
+      { ttlMs: config.dgxSnapshotCacheMs },
+    ),
+    logProvider: createDgxLogProvider({ sshTarget: profile.sshAlias }),
+    capabilityProvider: createCapabilityDiscovery({ sshTarget: profile.sshAlias }),
+    modelServiceAdapterDiscovery: createModelServiceAdapterDiscovery({ sshTarget: profile.sshAlias }),
+    targetSupportProfileProvider: createTargetSupportProfileProvider({ sshTarget: profile.sshAlias }),
+    hardwareSnapshotProvider: createHardwareSnapshotCache(createHardwareSnapshotProvider({ sshTarget: profile.sshAlias })),
+  });
   const sessionManager = createActiveProfileSessionManager({
     profileStore,
-    createSession: async (profile) => Object.freeze({
-      snapshotProvider: createSnapshotCache(
-        createDgxSnapshotProvider({ sshTarget: profile.sshAlias }),
-        { ttlMs: config.dgxSnapshotCacheMs },
-      ),
-      logProvider: createDgxLogProvider({ sshTarget: profile.sshAlias }),
-      capabilityProvider: createCapabilityDiscovery({ sshTarget: profile.sshAlias }),
-      modelServiceAdapterDiscovery: createModelServiceAdapterDiscovery({ sshTarget: profile.sshAlias }),
-      targetSupportProfileProvider: createTargetSupportProfileProvider({ sshTarget: profile.sshAlias }),
-      hardwareSnapshotProvider: createHardwareSnapshotCache(createHardwareSnapshotProvider({ sshTarget: profile.sshAlias })),
-    }),
+    createSession: createSessionForProfile,
   });
+  const nodeSnapshotProvider = createNodeSnapshotProvider({ profileStore, createSession: createSessionForProfile });
   const snapshotProvider = async () => (await sessionManager.getSession()).snapshotProvider();
   const logProvider = async (...args) => (await sessionManager.getSession()).logProvider(...args);
   const capabilityProvider = async () => (await sessionManager.getSession()).capabilityProvider();
@@ -160,6 +163,7 @@ export function createConfiguredApplicationCore(config = readConfig(), { runtime
     remoteDesktopStatusProvider,
     hardwareSnapshotProvider,
     hardwareHistoryStore,
+    nodeSnapshotProvider,
   });
 }
 

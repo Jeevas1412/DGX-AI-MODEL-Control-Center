@@ -23,6 +23,7 @@ const READ_PATHS = new Set([
   '/api/model-service-templates',
   '/api/model-service-adapters',
   '/api/model-service-configurations',
+  '/api/nodes',
 ]);
 
 function object(value, message) {
@@ -148,8 +149,12 @@ function safeHardwareHistory(path) {
     && ['15m', '1h', '6h', '24h', '7d'].includes(params.get('range'));
 }
 
+function safeNodeDetail(path) {
+  return /^\/api\/nodes\/[a-z0-9][a-z0-9-]{0,63}$/.test(path.pathname) && path.search === '';
+}
+
 function isAllowedGet(path) {
-  return path.search === '' && READ_PATHS.has(path.pathname) || safeLogs(path) || safeOperation(path) || safeModelCatalogSearch(path) || safeModelServicePrecheck(path) || safeHardwareHistory(path);
+  return path.search === '' && READ_PATHS.has(path.pathname) || safeLogs(path) || safeOperation(path) || safeModelCatalogSearch(path) || safeModelServicePrecheck(path) || safeHardwareHistory(path) || safeNodeDetail(path);
 }
 
 function isAllowedPost(path) {
